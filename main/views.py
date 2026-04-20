@@ -6,6 +6,7 @@ import uuid
 import shutil
 import asyncio
 import aiohttp
+import json
 from asyncio import Semaphore
 from django.conf import settings
 from django.shortcuts import render
@@ -31,10 +32,30 @@ whisper_model = WhisperModel(
 )
 
 translation_cache = {}
-tasks_status = {}   # словарь для статусов задач
 
+# ---------- Файловое хранилище статусов ----------
+def get_status_file_path(task_id):
+    return os.path.join(settings.TASK_STATUS_DIR, f"{task_id}.json")
+
+def save_task_status(task_id, data):
+    file_path = get_status_file_path(task_id)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
+
+def get_task_status(task_id):
+    file_path = get_status_file_path(task_id)
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return None
+
+def delete_task_status(task_id):
+    file_path = get_status_file_path(task_id)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+# ---------- Остальные функции ----------
 def serve_video(request, filename):
-    """Отдаёт видеофайл из папки processed_videos."""
     file_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', filename)
     if os.path.exists(file_path):
         return FileResponse(open(file_path, 'rb'), content_type='video/mp4')
@@ -138,7 +159,7 @@ def run_async_translation(texts):
 
 # ---------- Основная задача обработки видео ----------
 def process_video_task(task_id, tmp_path, original_filename):
-    tasks_status[task_id] = {'status': 'processing'}
+    save_task_status(task_id, {'status': 'processing'})
     audio_path = None
     converted_path = None
     try:
@@ -215,14 +236,14 @@ def process_video_task(task_id, tmp_path, original_filename):
         shutil.copy2(working_video, saved_video_path)
         video_url = reverse('serve_video', args=[saved_video_name])
 
-        tasks_status[task_id] = {
+        save_task_status(task_id, {
             'status': 'completed',
             'result_text_html': result_text_html,
             'result_text_plain': result_text_plain,
             'file_url': settings.MEDIA_URL + 'results/' + result_filename,
             'video_url': video_url,
             'subtitles': subtitles
-        }
+        })
 
         safe_remove(working_video)
         if converted_path and os.path.exists(converted_path):
@@ -232,10 +253,7 @@ def process_video_task(task_id, tmp_path, original_filename):
 
     except Exception as e:
         print(f"[ERROR] Task {task_id} failed: {e}")
-        tasks_status[task_id] = {
-            'status': 'failed',
-            'error': str(e)
-        }
+        save_task_status(task_id, {'status': 'failed', 'error': str(e)})
         safe_remove(tmp_path)
         if converted_path and os.path.exists(converted_path):
             safe_remove(converted_path)
@@ -262,7 +280,7 @@ def index_page(request):
                 dest.write(chunk)
 
         task_id = str(uuid.uuid4())
-        tasks_status[task_id] = {'status': 'processing'}
+        save_task_status(task_id, {'status': 'processing'})
         thread = threading.Thread(target=process_video_task, args=(task_id, tmp_path, video_file.name))
         thread.daemon = True
         thread.start()
@@ -272,7 +290,9 @@ def index_page(request):
     return render(request, 'index-page.html')
 
 def task_status(request, task_id):
-    status = tasks_status.get(task_id, {'status': 'not_found'})
+    status = get_task_status(task_id)
+    if status is None:
+        return JsonResponse({'status': 'not_found'})
     return JsonResponse(status)
 
 def download_result(request, filename):

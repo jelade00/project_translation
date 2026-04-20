@@ -129,6 +129,9 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+TASK_STATUS_DIR = os.path.join(MEDIA_ROOT, 'task_statuses')
+os.makedirs(TASK_STATUS_DIR, exist_ok=True)
+
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10240
 DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
 
