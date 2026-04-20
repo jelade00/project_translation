@@ -1,0 +1,16 @@
+# nixpacks.toml
+[phases.setup]
+nixPkgs = ["..."]  # Оставьте как есть или удалите
+
+[phases.install]
+cmds = [
+  # Явно указываем переменные для кэширования Hugging Face и FFmpeg
+  "export HF_HOME=/cache/huggingface",
+  "export XDG_CACHE_HOME=/cache/xdg",
+  "pip install -r requirements.txt"
+]
+
+[cache.directories]
+# Кэшируем модели и бинарные файлы между сборками
+"/cache/huggingface" = "huggingface"
+"/root/.cache/static_ffmpeg" = "static_ffmpeg"
