@@ -12,6 +12,7 @@ from django.shortcuts import render
 from django.core.files.storage import default_storage
 from django.http import FileResponse, Http404, JsonResponse
 from django.views.decorators.http import require_http_methods
+from django.urls import reverse
 
 import static_ffmpeg
 static_ffmpeg.add_paths()
@@ -32,6 +33,12 @@ whisper_model = WhisperModel(
 translation_cache = {}
 tasks_status = {}
 
+def serve_video(request, filename):
+    """Отдаёт видеофайл из папки processed_videos."""
+    file_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', filename)
+    if os.path.exists(file_path):
+        return FileResponse(open(file_path, 'rb'), content_type='video/mp4')
+    raise Http404("Video not found")
 
 def safe_remove(file_path, max_attempts=5, delay=0.2):
     for attempt in range(max_attempts):
@@ -231,7 +238,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         saved_video_name = f"{video_name}_{task_id}.mp4"
         saved_video_path = os.path.join(video_dir, saved_video_name)
         shutil.copy2(working_video, saved_video_path)
-        video_url = settings.MEDIA_URL + 'processed_videos/' + saved_video_name
+        video_url = reverse('serve_video', args=[saved_video_name])
 
         tasks_status[task_id] = {
             'status': 'completed',

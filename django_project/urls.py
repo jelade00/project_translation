@@ -27,6 +27,7 @@ urlpatterns = [
     path('about/', views.about_page, name='about'),
     path('task-status/<str:task_id>/', views.task_status, name='task_status'),
     path('download/<str:filename>/', views.download_result, name='download_result'),
+    path('video/<str:filename>/', views.serve_video, name='serve_video'),
 ]
 
 if settings.DEBUG:
