@@ -52,13 +52,11 @@ def safe_remove(file_path, max_attempts=5, delay=0.2):
             else:
                 raise
 
-
 def format_time(seconds):
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
 
 def convert_to_mp4(input_path, output_path):
     try:
@@ -69,12 +67,7 @@ def convert_to_mp4(input_path, output_path):
         print(f"Ошибка конвертации в MP4: {e}")
         return False
 
-
 def merge_segments_into_sentences(segments):
-    """
-    Объединяет фрагменты Whisper в предложения по знакам . ! ?
-    Возвращает список словарей: {'start': float, 'end': float, 'text': str}
-    """
     sentences = []
     current_text = ""
     current_start = None
@@ -84,16 +77,11 @@ def merge_segments_into_sentences(segments):
         text = seg.text.strip()
         if not text:
             continue
-
         if current_start is None:
             current_start = seg.start
-
         current_text += " " + text
         current_end = seg.end
-
-        # Проверяем, есть ли конец предложения
         if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
-            # Предложение закончено
             sentences.append({
                 'start': current_start,
                 'end': current_end,
@@ -103,16 +91,13 @@ def merge_segments_into_sentences(segments):
             current_start = None
             current_end = None
 
-    # Если остался текст без знака препинания в конце, добавляем его как есть
     if current_text:
         sentences.append({
             'start': current_start,
             'end': current_end,
             'text': current_text.strip()
         })
-
     return sentences
-
 
 # ---------- Асинхронный перевод ----------
 async def translate_text_async(session, text, semaphore):
@@ -137,13 +122,11 @@ async def translate_text_async(session, text, semaphore):
             print(f"Ошибка перевода: {e}")
             return text
 
-
 async def translate_batch_async(texts, max_concurrent=5):
     semaphore = Semaphore(max_concurrent)
     async with aiohttp.ClientSession() as session:
         tasks = [translate_text_async(session, t, semaphore) for t in texts]
         return await asyncio.gather(*tasks)
-
 
 def run_async_translation(texts):
     loop = asyncio.new_event_loop()
@@ -153,9 +136,9 @@ def run_async_translation(texts):
     finally:
         loop.close()
 
-
 # ---------- Основная задача обработки видео ----------
 def process_video_task(task_id, tmp_path, original_filename):
+    tasks_status[task_id] = {'status': 'processing'}
     audio_path = None
     converted_path = None
     try:
@@ -174,7 +157,6 @@ def process_video_task(task_id, tmp_path, original_filename):
         with VideoFileClip(working_video) as clip:
             clip.audio.write_audiofile(audio_path, logger=None)
 
-        # Распознавание речи
         segments, info = whisper_model.transcribe(
             audio_path,
             beam_size=1,
@@ -185,14 +167,11 @@ def process_video_task(task_id, tmp_path, original_filename):
         segments_list = list(segments)
         print(f"[INFO] Распознано {len(segments_list)} фрагментов, язык: {info.language}")
 
-        # Объединение в предложения
         sentences = merge_segments_into_sentences(segments_list)
         print(f"[INFO] Объединено в {len(sentences)} предложений")
 
-        # Извлечение текстов предложений
         sentence_texts = [s['text'] for s in sentences]
 
-        # Пакетный перевод (параллельно)
         batch_size = 20
         translated_texts = []
         for i in range(0, len(sentence_texts), batch_size):
@@ -201,10 +180,9 @@ def process_video_task(task_id, tmp_path, original_filename):
             batch_translated = run_async_translation(batch)
             translated_texts.extend(batch_translated)
 
-        # Формирование HTML и plain-вывода
         output_lines_html = []
         output_lines_plain = []
-        subtitles = []  # список субтитров
+        subtitles = []
         for sent, trans in zip(sentences, translated_texts):
             start_str = format_time(sent['start'])
             end_str = format_time(sent['end'])
@@ -212,7 +190,6 @@ def process_video_task(task_id, tmp_path, original_filename):
             output_lines_html.append(html_line)
             plain_line = f"[{start_str} -> {end_str}] {sent['text']}\n- {trans}\n\n"
             output_lines_plain.append(plain_line)
-            # Добавляем субтитр
             subtitles.append({
                 'start': sent['start'],
                 'end': sent['end'],
@@ -223,7 +200,6 @@ def process_video_task(task_id, tmp_path, original_filename):
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
-        # Сохранение файла
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -231,7 +207,6 @@ def process_video_task(task_id, tmp_path, original_filename):
         with open(result_file_path, 'w', encoding='utf-8') as f:
             f.write(result_text_plain)
 
-        # Сохранение видео
         video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
         os.makedirs(video_dir, exist_ok=True)
         video_name, _ = os.path.splitext(original_filename)
@@ -256,6 +231,7 @@ def process_video_task(task_id, tmp_path, original_filename):
             os.remove(audio_path)
 
     except Exception as e:
+        print(f"[ERROR] Task {task_id} failed: {e}")
         tasks_status[task_id] = {
             'status': 'failed',
             'error': str(e)
@@ -268,7 +244,6 @@ def process_video_task(task_id, tmp_path, original_filename):
                 os.remove(audio_path)
             except:
                 pass
-
 
 # ---------- Django views ----------
 @require_http_methods(["GET", "POST"])
@@ -287,27 +262,24 @@ def index_page(request):
                 dest.write(chunk)
 
         task_id = str(uuid.uuid4())
+        tasks_status[task_id] = {'status': 'processing'}
         thread = threading.Thread(target=process_video_task, args=(task_id, tmp_path, video_file.name))
         thread.daemon = True
         thread.start()
 
-        tasks_status[task_id] = {'status': 'processing'}
         return JsonResponse({'task_id': task_id, 'status': 'processing'})
 
     return render(request, 'index-page.html')
 
-
 def task_status(request, task_id):
     status = tasks_status.get(task_id, {'status': 'not_found'})
     return JsonResponse(status)
-
 
 def download_result(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'results', filename)
     if os.path.exists(file_path):
         return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=filename)
     raise Http404("Файл не найден")
-
 
 def about_page(request):
     return render(request, 'about.html')
