@@ -20,13 +20,13 @@ from moviepy import VideoFileClip
 from faster_whisper import WhisperModel
 
 # ---------- Глобальная инициализация ----------
-WHISPER_MODEL_SIZE = "small"
+WHISPER_MODEL_SIZE = "base"
 whisper_model = WhisperModel(
     WHISPER_MODEL_SIZE,
     device="cpu",
     compute_type="int8",
     cpu_threads=4,
-    num_workers=2
+    num_workers=1
 )
 
 translation_cache = {}
