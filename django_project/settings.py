@@ -130,3 +130,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
 
 # Настройки для загрузки файлов
 FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://*.railway.app',
+    'https://*.up.railway.app',
+]
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = 'Lax'

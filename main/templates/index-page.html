@@ -518,6 +518,7 @@
 
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+
             if (!videoInput.files.length) {
                 errorBlock.textContent = 'Пожалуйста, выберите видеофайл.';
                 errorBlock.style.display = 'block';
@@ -528,19 +529,42 @@
 
             const formData = new FormData();
             formData.append('video_file', videoInput.files[0]);
-            formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
+
             startBtn.disabled = true;
             startBtn.style.opacity = '0.5';
             statusBlock.style.display = 'block';
             resultBlock.style.display = 'none';
+
             try {
-                const response = await fetch('/', { method: 'POST', body: formData });
+                const response = await fetch('/', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                });
                 const data = await response.json();
                 if (data.task_id) pollTaskStatus(data.task_id);
                 else if (data.error) showError(data.error);
-            } catch (err) { showError('Ошибка отправки файла: ' + err.message); }
+            } catch (err) {
+                showError('Ошибка отправки файла: ' + err.message);
+            }
         });
-
         async function pollTaskStatus(taskId) {
             const interval = setInterval(async () => {
                 const resp = await fetch(`/task-status/${taskId}/`);
