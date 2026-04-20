@@ -19,6 +19,7 @@ static_ffmpeg.add_paths()
 
 from moviepy import VideoFileClip
 from faster_whisper import WhisperModel
+from main.models import TaskStatus   # импорт модели
 
 # ---------- Глобальная инициализация ----------
 WHISPER_MODEL_SIZE = "small"
@@ -31,7 +32,6 @@ whisper_model = WhisperModel(
 )
 
 translation_cache = {}
-tasks_status = {}
 
 def serve_video(request, filename):
     """Отдаёт видеофайл из папки processed_videos."""
@@ -138,7 +138,8 @@ def run_async_translation(texts):
 
 # ---------- Основная задача обработки видео ----------
 def process_video_task(task_id, tmp_path, original_filename):
-    tasks_status[task_id] = {'status': 'processing'}
+    # Статус уже создан как 'processing', но на всякий случай обновим
+    TaskStatus.objects.filter(task_id=task_id).update(status='processing')
     audio_path = None
     converted_path = None
     try:
@@ -215,14 +216,16 @@ def process_video_task(task_id, tmp_path, original_filename):
         shutil.copy2(working_video, saved_video_path)
         video_url = reverse('serve_video', args=[saved_video_name])
 
-        tasks_status[task_id] = {
-            'status': 'completed',
-            'result_text_html': result_text_html,
-            'result_text_plain': result_text_plain,
-            'file_url': settings.MEDIA_URL + 'results/' + result_filename,
-            'video_url': video_url,
-            'subtitles': subtitles
-        }
+        TaskStatus.objects.filter(task_id=task_id).update(
+            status='completed',
+            result={
+                'result_text_html': result_text_html,
+                'result_text_plain': result_text_plain,
+                'file_url': settings.MEDIA_URL + 'results/' + result_filename,
+                'video_url': video_url,
+                'subtitles': subtitles
+            }
+        )
 
         safe_remove(working_video)
         if converted_path and os.path.exists(converted_path):
@@ -232,10 +235,10 @@ def process_video_task(task_id, tmp_path, original_filename):
 
     except Exception as e:
         print(f"[ERROR] Task {task_id} failed: {e}")
-        tasks_status[task_id] = {
-            'status': 'failed',
-            'error': str(e)
-        }
+        TaskStatus.objects.filter(task_id=task_id).update(
+            status='failed',
+            result={'error': str(e)}
+        )
         safe_remove(tmp_path)
         if converted_path and os.path.exists(converted_path):
             safe_remove(converted_path)
@@ -262,7 +265,7 @@ def index_page(request):
                 dest.write(chunk)
 
         task_id = str(uuid.uuid4())
-        tasks_status[task_id] = {'status': 'processing'}
+        TaskStatus.objects.create(task_id=task_id, status='processing')
         thread = threading.Thread(target=process_video_task, args=(task_id, tmp_path, video_file.name))
         thread.daemon = True
         thread.start()
@@ -272,8 +275,16 @@ def index_page(request):
     return render(request, 'index-page.html')
 
 def task_status(request, task_id):
-    status = tasks_status.get(task_id, {'status': 'not_found'})
-    return JsonResponse(status)
+    try:
+        task = TaskStatus.objects.get(task_id=task_id)
+        if task.status == 'processing':
+            return JsonResponse({'status': 'processing'})
+        elif task.status == 'completed':
+            return JsonResponse({'status': 'completed', **task.result})
+        else:
+            return JsonResponse({'status': 'failed', 'error': task.result.get('error', 'Unknown error')})
+    except TaskStatus.DoesNotExist:
+        return JsonResponse({'status': 'not_found'})
 
 def download_result(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'results', filename)
