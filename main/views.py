@@ -1,6 +1,306 @@
+import os
+import time
+import gc
+import threading
+import uuid
+import shutil
+import asyncio
+import aiohttp
+from asyncio import Semaphore
+from django.conf import settings
 from django.shortcuts import render
+from django.core.files.storage import default_storage
+from django.http import FileResponse, Http404, JsonResponse
+from django.views.decorators.http import require_http_methods
 
+import static_ffmpeg
+static_ffmpeg.add_paths()
+
+from moviepy import VideoFileClip
+from faster_whisper import WhisperModel
+
+# ---------- Глобальная инициализация ----------
+WHISPER_MODEL_SIZE = "small"
+whisper_model = WhisperModel(
+    WHISPER_MODEL_SIZE,
+    device="cpu",
+    compute_type="int8",
+    cpu_threads=4,
+    num_workers=2
+)
+
+translation_cache = {}
+tasks_status = {}
+
+
+def safe_remove(file_path, max_attempts=5, delay=0.2):
+    for attempt in range(max_attempts):
+        try:
+            os.remove(file_path)
+            return True
+        except PermissionError:
+            if attempt < max_attempts - 1:
+                time.sleep(delay)
+                gc.collect()
+            else:
+                raise
+
+
+def format_time(seconds):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def convert_to_mp4(input_path, output_path):
+    try:
+        with VideoFileClip(input_path) as clip:
+            clip.write_videofile(output_path, codec='libx264', audio_codec='aac', logger=None)
+        return True
+    except Exception as e:
+        print(f"Ошибка конвертации в MP4: {e}")
+        return False
+
+
+def merge_segments_into_sentences(segments):
+    """
+    Объединяет фрагменты Whisper в предложения по знакам . ! ?
+    Возвращает список словарей: {'start': float, 'end': float, 'text': str}
+    """
+    sentences = []
+    current_text = ""
+    current_start = None
+    current_end = None
+
+    for seg in segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+
+        if current_start is None:
+            current_start = seg.start
+
+        current_text += " " + text
+        current_end = seg.end
+
+        # Проверяем, есть ли конец предложения
+        if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
+            # Предложение закончено
+            sentences.append({
+                'start': current_start,
+                'end': current_end,
+                'text': current_text.strip()
+            })
+            current_text = ""
+            current_start = None
+            current_end = None
+
+    # Если остался текст без знака препинания в конце, добавляем его как есть
+    if current_text:
+        sentences.append({
+            'start': current_start,
+            'end': current_end,
+            'text': current_text.strip()
+        })
+
+    return sentences
+
+
+# ---------- Асинхронный перевод ----------
+async def translate_text_async(session, text, semaphore):
+    if text in translation_cache:
+        return translation_cache[text]
+    async with semaphore:
+        url = "https://translate.googleapis.com/translate_a/single"
+        params = {
+            "client": "gtx",
+            "sl": "en",
+            "tl": "ru",
+            "dt": "t",
+            "q": text
+        }
+        try:
+            async with session.get(url, params=params, timeout=10) as resp:
+                data = await resp.json()
+                translated = data[0][0][0] if data and data[0] else text
+                translation_cache[text] = translated
+                return translated
+        except Exception as e:
+            print(f"Ошибка перевода: {e}")
+            return text
+
+
+async def translate_batch_async(texts, max_concurrent=5):
+    semaphore = Semaphore(max_concurrent)
+    async with aiohttp.ClientSession() as session:
+        tasks = [translate_text_async(session, t, semaphore) for t in texts]
+        return await asyncio.gather(*tasks)
+
+
+def run_async_translation(texts):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(translate_batch_async(texts))
+    finally:
+        loop.close()
+
+
+# ---------- Основная задача обработки видео ----------
+def process_video_task(task_id, tmp_path, original_filename):
+    audio_path = None
+    converted_path = None
+    try:
+        ext = os.path.splitext(original_filename)[1].lower()
+        if ext != '.mp4':
+            converted_path = tmp_path.replace(ext, '.mp4')
+            print(f"Конвертация {tmp_path} -> {converted_path}")
+            if not convert_to_mp4(tmp_path, converted_path):
+                raise Exception("Не удалось сконвертировать видео в MP4")
+            safe_remove(tmp_path)
+            working_video = converted_path
+        else:
+            working_video = tmp_path
+
+        audio_path = working_video.replace('.mp4', '_temp.wav')
+        with VideoFileClip(working_video) as clip:
+            clip.audio.write_audiofile(audio_path, logger=None)
+
+        # Распознавание речи
+        segments, info = whisper_model.transcribe(
+            audio_path,
+            beam_size=1,
+            language="en",
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500)
+        )
+        segments_list = list(segments)
+        print(f"[INFO] Распознано {len(segments_list)} фрагментов, язык: {info.language}")
+
+        # Объединение в предложения
+        sentences = merge_segments_into_sentences(segments_list)
+        print(f"[INFO] Объединено в {len(sentences)} предложений")
+
+        # Извлечение текстов предложений
+        sentence_texts = [s['text'] for s in sentences]
+
+        # Пакетный перевод (параллельно)
+        batch_size = 20
+        translated_texts = []
+        for i in range(0, len(sentence_texts), batch_size):
+            batch = sentence_texts[i:i+batch_size]
+            print(f"[INFO] Перевод предложений {i+1}-{min(i+batch_size, len(sentence_texts))}")
+            batch_translated = run_async_translation(batch)
+            translated_texts.extend(batch_translated)
+
+        # Формирование HTML и plain-вывода
+        output_lines_html = []
+        output_lines_plain = []
+        subtitles = []  # список субтитров
+        for sent, trans in zip(sentences, translated_texts):
+            start_str = format_time(sent['start'])
+            end_str = format_time(sent['end'])
+            html_line = f'<div class="fragment"><span class="timestamp" data-time="{sent["start"]}" data-end="{sent["end"]}">[{start_str} -> {end_str}]</span> {sent["text"]}<br>- {trans}<br><br></div>'
+            output_lines_html.append(html_line)
+            plain_line = f"[{start_str} -> {end_str}] {sent['text']}\n- {trans}\n\n"
+            output_lines_plain.append(plain_line)
+            # Добавляем субтитр
+            subtitles.append({
+                'start': sent['start'],
+                'end': sent['end'],
+                'en': sent['text'],
+                'ru': trans
+            })
+
+        result_text_html = "".join(output_lines_html)
+        result_text_plain = "".join(output_lines_plain)
+
+        # Сохранение файла
+        result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
+        result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
+        os.makedirs(result_dir, exist_ok=True)
+        result_file_path = os.path.join(result_dir, result_filename)
+        with open(result_file_path, 'w', encoding='utf-8') as f:
+            f.write(result_text_plain)
+
+        # Сохранение видео
+        video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
+        os.makedirs(video_dir, exist_ok=True)
+        video_name, _ = os.path.splitext(original_filename)
+        saved_video_name = f"{video_name}_{task_id}.mp4"
+        saved_video_path = os.path.join(video_dir, saved_video_name)
+        shutil.copy2(working_video, saved_video_path)
+        video_url = settings.MEDIA_URL + 'processed_videos/' + saved_video_name
+
+        tasks_status[task_id] = {
+            'status': 'completed',
+            'result_text_html': result_text_html,
+            'result_text_plain': result_text_plain,
+            'file_url': settings.MEDIA_URL + 'results/' + result_filename,
+            'video_url': video_url,
+            'subtitles': subtitles
+        }
+
+        safe_remove(working_video)
+        if converted_path and os.path.exists(converted_path):
+            safe_remove(converted_path)
+        if audio_path and os.path.exists(audio_path):
+            os.remove(audio_path)
+
+    except Exception as e:
+        tasks_status[task_id] = {
+            'status': 'failed',
+            'error': str(e)
+        }
+        safe_remove(tmp_path)
+        if converted_path and os.path.exists(converted_path):
+            safe_remove(converted_path)
+        if audio_path and os.path.exists(audio_path):
+            try:
+                os.remove(audio_path)
+            except:
+                pass
+
+
+# ---------- Django views ----------
+@require_http_methods(["GET", "POST"])
 def index_page(request):
-    context = {}
+    if request.method == "POST" and request.FILES.get('video_file'):
+        video_file = request.FILES['video_file']
+        ext = os.path.splitext(video_file.name)[1].lower()
+        if ext not in ['.mp4', '.mov', '.avi', '.mkv', '.webm']:
+            return JsonResponse({'error': 'Неподдерживаемый формат'}, status=400)
 
-    return render(request, 'index.html', context)
+        tmp_dir = os.path.join(settings.MEDIA_ROOT, 'tmp')
+        os.makedirs(tmp_dir, exist_ok=True)
+        tmp_path = os.path.join(tmp_dir, video_file.name)
+        with default_storage.open(tmp_path, 'wb+') as dest:
+            for chunk in video_file.chunks():
+                dest.write(chunk)
+
+        task_id = str(uuid.uuid4())
+        thread = threading.Thread(target=process_video_task, args=(task_id, tmp_path, video_file.name))
+        thread.daemon = True
+        thread.start()
+
+        tasks_status[task_id] = {'status': 'processing'}
+        return JsonResponse({'task_id': task_id, 'status': 'processing'})
+
+    return render(request, 'index-page.html')
+
+
+def task_status(request, task_id):
+    status = tasks_status.get(task_id, {'status': 'not_found'})
+    return JsonResponse(status)
+
+
+def download_result(request, filename):
+    file_path = os.path.join(settings.MEDIA_ROOT, 'results', filename)
+    if os.path.exists(file_path):
+        return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=filename)
+    raise Http404("Файл не найден")
+
+
+def about_page(request):
+    return render(request, 'about.html')

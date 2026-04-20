@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinguaScan | Расшифровка и перевод видео</title>
+    <style>
+        /* ... все стили как в вашем файле ... (я их не меняю, просто скопирую из вашего) */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+            color: #0f172a;
+            line-height: 1.4;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            letter-spacing: -0.1px;
+        }
+        .header {
+            background-color: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            background-color: #3b82f6;
+            width: 36px;
+            height: 36px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 20px;
+        }
+        .logo-text {
+            font-weight: 700;
+            font-size: 1.4rem;
+            letter-spacing: -0.3px;
+            background: linear-gradient(135deg, #0f172a, #2d3a5e);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+        }
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            font-weight: 500;
+        }
+        .nav-links a {
+            text-decoration: none;
+            color: #334155;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover {
+            color: #3b82f6;
+        }
+        .main-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1.5rem;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 2rem;
+            box-shadow: 0 20px 35px -12px rgba(0,0,0,0.08);
+            max-width: 1400px;
+            width: 100%;
+            padding: 2.5rem 2rem;
+            text-align: center;
+        }
+        .title {
+            font-size: 2.4rem;
+            font-weight: 700;
+            background: linear-gradient(145deg, #0f172a, #2d3a5e);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+            margin-bottom: 0.75rem;
+            letter-spacing: -0.3px;
+        }
+        .sub-wrapper {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .sub {
+            font-size: 1rem;
+            color: #475569;
+            border-left: 3px solid #3b82f6;
+            padding-left: 1rem;
+            text-align: left;
+            display: inline-block;
+            letter-spacing: -0.1px;
+        }
+        .upload-section {
+            transition: opacity 0.3s ease;
+        }
+        .upload-area {
+            background-color: #fefce8;
+            border: 2px dashed #cbd5e1;
+            border-radius: 1.5rem;
+            padding: 2rem 1rem;
+            margin: 1rem 0 1.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .upload-area:hover {
+            border-color: #3b82f6;
+            background-color: #f0f9ff;
+        }
+        .file-label {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .upload-icon {
+            background-color: #eef2ff;
+            width: 64px;
+            height: 64px;
+            border-radius: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            color: #3b82f6;
+        }
+        .file-input {
+            display: none;
+        }
+        .file-name {
+            font-size: 0.9rem;
+            color: #475569;
+            background: #f1f5f9;
+            padding: 0.5rem 1rem;
+            border-radius: 40px;
+            display: inline-block;
+            margin-top: 8px;
+        }
+        .start-btn {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.9rem 2rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 60px;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+            max-width: 280px;
+            letter-spacing: -0.1px;
+        }
+        .start-btn:hover {
+            background-color: #2563eb;
+            transform: scale(0.98);
+        }
+        .status-box {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 12px;
+            background: #f1f5f9;
+            display: none;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error-message {
+            color: #dc2626;
+            background: #fee2e2;
+            padding: 10px;
+            border-radius: 12px;
+            margin: 15px 0;
+            display: none;
+        }
+        .result-container {
+            margin-top: 1.5rem;
+            text-align: left;
+        }
+        .video-player {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+        .video-player video {
+            width: 100%;
+            height: auto;
+            border-radius: 1rem;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            background: #000;
+        }
+        /* Субтитры */
+        .subtitles-area {
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            border-radius: 1rem;
+            padding: 0.8rem 1rem;
+            margin: 0.5rem 0 1rem;
+            text-align: center;
+            transition: opacity 0.2s ease;
+            font-family: 'Inter', 'Segoe UI', 'Roboto', monospace;
+        }
+        .subtitle-en {
+            font-size: 1.2rem;
+            font-weight: 500;
+            color: #facc15;
+            margin-bottom: 0.3rem;
+        }
+        .subtitle-ru {
+            font-size: 1rem;
+            color: #e2e8f0;
+        }
+        .transcript-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 1.25rem;
+            padding: 1.2rem;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Inter', 'Segoe UI', 'Roboto', monospace;
+            font-size: 1rem;
+            line-height: 1.6;
+            letter-spacing: -0.2px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: #1e293b;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .timestamp {
+            color: #3b82f6;
+            cursor: pointer;
+            text-decoration: underline;
+            font-weight: 600;
+            letter-spacing: -0.1px;
+            background-color: #eef2ff;
+            padding: 0 2px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .timestamp:hover {
+            background-color: #dbeafe;
+            text-decoration: none;
+        }
+        .result-actions {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .download-btn, .newfile-btn {
+            display: inline-block;
+            background-color: #3b82f6;
+            color: white;
+            text-decoration: none;
+            padding: 0.7rem 1.5rem;
+            border-radius: 60px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: -0.1px;
+        }
+        .newfile-btn {
+            background-color: #64748b;
+        }
+        .newfile-btn:hover {
+            background-color: #475569;
+            transform: scale(0.98);
+        }
+        .info-note {
+            margin-top: 2rem;
+            font-size: 0.8rem;
+            color: #64748b;
+            background: #f8fafc;
+            padding: 0.75rem;
+            border-radius: 1rem;
+            letter-spacing: -0.1px;
+        }
+        footer {
+            text-align: center;
+            padding: 1.5rem;
+            font-size: 0.75rem;
+            color: #94a3b8;
+            border-top: 1px solid #e9eef3;
+        }
+        @media (max-width: 768px) {
+            .title { font-size: 1.8rem; }
+            .card { padding: 1.8rem; }
+            .transcript-box { max-height: 350px; }
+            .subtitle-en { font-size: 1rem; }
+            .subtitle-ru { font-size: 0.9rem; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo-area">
+            <div class="logo-icon">🎬</div>
+            <span class="logo-text">LinguaScan</span>
+        </div>
+        <div class="nav-links">
+            <a href="/">Главная</a>
+            <a href="/about">О проекте</a>
+        </div>
+    </header>
+    <main class="main-container">
+        <div class="card">
+            <h1 class="title">Переводчик видео</h1>
+            <div class="sub-wrapper">
+                <div class="sub">Автоматическая расшифровка и перевод англоязычных видео в удобный двуязычный текст</div>
+            </div>
+            <div id="uploadSection" class="upload-section">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="upload-area" id="uploadArea">
+                        <label for="videoInput" class="file-label">
+                            <div class="upload-icon">📁</div>
+                            <span style="font-weight:600;">Выберите файл</span>
+                            <span style="font-size:0.85rem; color:#5b6e8c;">MP4, MOV, AVI, MKV (до 500 МБ)</span>
+                            <input type="file" id="videoInput" name="video_file" class="file-input" accept="video/*" required>
+                        </label>
+                        <div id="fileNameDisplay" class="file-name" style="display:none;"></div>
+                    </div>
+                    <button type="submit" id="startBtn" class="start-btn">▶ Начать обработку</button>
+                </form>
+            </div>
+            <div id="statusBlock" class="status-box">
+                <div class="spinner"></div>
+                <div style="text-align:center; margin-top:10px;">Обработка видео... Это может занять несколько минут.</div>
+            </div>
+            <div id="resultBlock" style="display:none;">
+                <div class="result-container">
+                    <div class="video-player">
+                        <video id="resultVideo" controls preload="metadata"></video>
+                    </div>
+                    <div class="subtitles-area" id="subtitlesArea">
+                        <div class="subtitle-en" id="liveSubtitleEn">—</div>
+                        <div class="subtitle-ru" id="liveSubtitleRu">—</div>
+                    </div>
+                    <div class="transcript-box" id="transcriptBox"></div>
+                </div>
+                <div class="result-actions">
+                    <a id="downloadLink" class="download-btn" download>⬇ Скачать результат (TXT)</a>
+                    <button id="newFileBtn" class="newfile-btn">➕ Новый файл</button>
+                </div>
+            </div>
+            <div id="errorBlock" class="error-message"></div>
+            <div class="info-note">💡 Обработка может занять до 5–10 минут в зависимости от длины видео.</div>
+        </div>
+    </main>
+    <footer>© 2026 — LinguaScan | Инструмент для изучения английского по видео</footer>
+    <script>
+        const uploadSection = document.getElementById('uploadSection');
+        const uploadForm = document.getElementById('uploadForm');
+        const startBtn = document.getElementById('startBtn');
+        const statusBlock = document.getElementById('statusBlock');
+        const resultBlock = document.getElementById('resultBlock');
+        const errorBlock = document.getElementById('errorBlock');
+        const resultVideo = document.getElementById('resultVideo');
+        const transcriptBox = document.getElementById('transcriptBox');
+        const downloadLink = document.getElementById('downloadLink');
+        const newFileBtn = document.getElementById('newFileBtn');
+        const videoInput = document.getElementById('videoInput');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const uploadArea = document.getElementById('uploadArea');
+        const liveSubtitleEn = document.getElementById('liveSubtitleEn');
+        const liveSubtitleRu = document.getElementById('liveSubtitleRu');
+        const subtitlesArea = document.getElementById('subtitlesArea');
+
+        let activeSubtitles = [];
+
+        function parseSubtitlesFromHtml(html) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const fragments = doc.querySelectorAll('.fragment');
+            const subs = [];
+            fragments.forEach(frag => {
+                const timestampSpan = frag.querySelector('.timestamp');
+                if (!timestampSpan) return;
+                const startSec = parseFloat(timestampSpan.getAttribute('data-time'));
+                const endSec = parseFloat(timestampSpan.getAttribute('data-end'));
+                // Клонируем фрагмент, чтобы не изменять оригинал
+                const clone = frag.cloneNode(true);
+                const spanClone = clone.querySelector('.timestamp');
+                if (spanClone) spanClone.remove();
+                // Получаем HTML-содержимое клона
+                const innerHtml = clone.innerHTML;
+                // Разделяем по <br>
+                const parts = innerHtml.split(/<br\s*\/?>/i);
+                let enText = '';
+                let ruText = '';
+                if (parts.length >= 1) {
+                    // Первая часть — английский текст (может содержать переносы)
+                    enText = parts[0].replace(/<[^>]*>/g, '').trim();
+                }
+                if (parts.length >= 2) {
+                    // Вторая часть — русский текст (начинается с "- ")
+                    let ruPart = parts[1].replace(/<[^>]*>/g, '').trim();
+                    if (ruPart.startsWith('-')) ruPart = ruPart.substring(1).trim();
+                    ruText = ruPart;
+                }
+                subs.push({ start: startSec, end: endSec, en: enText, ru: ruText });
+            });
+            return subs;
+        }
+
+        function updateSubtitles() {
+            if (!resultVideo || !activeSubtitles.length) return;
+            const currentTime = resultVideo.currentTime;
+            let found = null;
+            for (let sub of activeSubtitles) {
+                if (currentTime >= sub.start && currentTime <= sub.end) {
+                    found = sub;
+                    break;
+                }
+            }
+            if (found) {
+                liveSubtitleEn.textContent = found.en;
+                liveSubtitleRu.textContent = found.ru;
+                subtitlesArea.style.opacity = '1';
+            } else {
+                liveSubtitleEn.textContent = '—';
+                liveSubtitleRu.textContent = '—';
+                subtitlesArea.style.opacity = '0.7';
+            }
+        }
+
+        function clearFileInput() {
+            videoInput.value = '';
+            fileNameDisplay.style.display = 'none';
+            fileNameDisplay.textContent = '';
+            uploadArea.style.borderColor = '#cbd5e1';
+            uploadArea.style.backgroundColor = '#fefce8';
+        }
+
+        function showResult(htmlText, fileUrl, videoUrl) {
+            uploadSection.style.display = 'none';
+            statusBlock.style.display = 'none';
+            transcriptBox.innerHTML = htmlText;
+            const filename = fileUrl.split('/').pop();
+            downloadLink.href = `/download/${encodeURIComponent(filename)}`;
+            if (videoUrl) resultVideo.src = videoUrl;
+            resultBlock.style.display = 'block';
+            startBtn.disabled = false;
+            startBtn.style.opacity = '1';
+            clearFileInput(); // очищаем поле выбора файла после успешной обработки
+
+            activeSubtitles = parseSubtitlesFromHtml(htmlText);
+            if (resultVideo) {
+                resultVideo.addEventListener('timeupdate', updateSubtitles);
+                resultVideo.addEventListener('seeked', updateSubtitles);
+            }
+
+            document.querySelectorAll('.timestamp').forEach(ts => {
+                ts.addEventListener('click', (e) => {
+                    const sec = parseFloat(ts.getAttribute('data-time'));
+                    if (!isNaN(sec) && resultVideo) {
+                        resultVideo.currentTime = sec;
+                        resultVideo.play();
+                    }
+                });
+            });
+        }
+
+        function showError(message) {
+            statusBlock.style.display = 'none';
+            errorBlock.textContent = message;
+            errorBlock.style.display = 'block';
+            startBtn.disabled = false;
+            startBtn.style.opacity = '1';
+            clearFileInput(); // очищаем поле выбора файла после ошибки
+        }
+
+        videoInput.addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                fileNameDisplay.textContent = `✓ ${e.target.files[0].name}`;
+                fileNameDisplay.style.display = 'inline-block';
+                uploadArea.style.borderColor = '#3b82f6';
+                uploadArea.style.backgroundColor = '#f0f9ff';
+                errorBlock.style.display = 'none';
+                errorBlock.textContent = '';
+            } else {
+                fileNameDisplay.style.display = 'none';
+                uploadArea.style.borderColor = '#cbd5e1';
+                uploadArea.style.backgroundColor = '#fefce8';
+            }
+        });
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!videoInput.files.length) {
+                errorBlock.textContent = 'Пожалуйста, выберите видеофайл.';
+                errorBlock.style.display = 'block';
+                return;
+            }
+            errorBlock.style.display = 'none';
+            errorBlock.textContent = '';
+
+            const formData = new FormData();
+            formData.append('video_file', videoInput.files[0]);
+            formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+            startBtn.disabled = true;
+            startBtn.style.opacity = '0.5';
+            statusBlock.style.display = 'block';
+            resultBlock.style.display = 'none';
+            try {
+                const response = await fetch('/', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.task_id) pollTaskStatus(data.task_id);
+                else if (data.error) showError(data.error);
+            } catch (err) { showError('Ошибка отправки файла: ' + err.message); }
+        });
+
+        async function pollTaskStatus(taskId) {
+            const interval = setInterval(async () => {
+                const resp = await fetch(`/task-status/${taskId}/`);
+                const status = await resp.json();
+                if (status.status === 'completed') {
+                    clearInterval(interval);
+                    showResult(status.result_text_html, status.file_url, status.video_url);
+                } else if (status.status === 'failed') {
+                    clearInterval(interval);
+                    showError(status.error);
+                } else if (status.status === 'not_found') {
+                    clearInterval(interval);
+                    showError('Задача не найдена');
+                }
+            }, 2000);
+        }
+
+        newFileBtn.addEventListener('click', () => location.reload());
+    </script>
+</body>
+</html>
