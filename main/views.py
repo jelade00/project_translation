@@ -20,13 +20,13 @@ from moviepy import VideoFileClip
 from faster_whisper import WhisperModel
 
 # ---------- Глобальная инициализация ----------
-WHISPER_MODEL_SIZE = "base"   # изменено с small на base для экономии памяти
+WHISPER_MODEL_SIZE = "small"
 whisper_model = WhisperModel(
     WHISPER_MODEL_SIZE,
     device="cpu",
     compute_type="int8",
     cpu_threads=4,
-    num_workers=1          # уменьшено для снижения нагрузки
+    num_workers=2
 )
 
 translation_cache = {}
@@ -64,6 +64,10 @@ def convert_to_mp4(input_path, output_path):
 
 
 def merge_segments_into_sentences(segments):
+    """
+    Объединяет фрагменты Whisper в предложения по знакам . ! ?
+    Возвращает список словарей: {'start': float, 'end': float, 'text': str}
+    """
     sentences = []
     current_text = ""
     current_start = None
@@ -73,11 +77,16 @@ def merge_segments_into_sentences(segments):
         text = seg.text.strip()
         if not text:
             continue
+
         if current_start is None:
             current_start = seg.start
+
         current_text += " " + text
         current_end = seg.end
+
+        # Проверяем, есть ли конец предложения
         if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
+            # Предложение закончено
             sentences.append({
                 'start': current_start,
                 'end': current_end,
@@ -87,12 +96,14 @@ def merge_segments_into_sentences(segments):
             current_start = None
             current_end = None
 
+    # Если остался текст без знака препинания в конце, добавляем его как есть
     if current_text:
         sentences.append({
             'start': current_start,
             'end': current_end,
             'text': current_text.strip()
         })
+
     return sentences
 
 
@@ -138,10 +149,6 @@ def run_async_translation(texts):
 
 # ---------- Основная задача обработки видео ----------
 def process_video_task(task_id, tmp_path, original_filename):
-    # Сразу устанавливаем статус, чтобы клиент не получил "not found"
-    tasks_status[task_id] = {'status': 'processing'}
-    print(f"[DEBUG] Задача {task_id} запущена, файл: {original_filename}")
-
     audio_path = None
     converted_path = None
     try:
@@ -160,6 +167,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         with VideoFileClip(working_video) as clip:
             clip.audio.write_audiofile(audio_path, logger=None)
 
+        # Распознавание речи
         segments, info = whisper_model.transcribe(
             audio_path,
             beam_size=1,
@@ -168,12 +176,16 @@ def process_video_task(task_id, tmp_path, original_filename):
             vad_parameters=dict(min_silence_duration_ms=500)
         )
         segments_list = list(segments)
-        print(f"[INFO] Распознано {len(segments_list)} фрагментов")
+        print(f"[INFO] Распознано {len(segments_list)} фрагментов, язык: {info.language}")
 
+        # Объединение в предложения
         sentences = merge_segments_into_sentences(segments_list)
         print(f"[INFO] Объединено в {len(sentences)} предложений")
 
+        # Извлечение текстов предложений
         sentence_texts = [s['text'] for s in sentences]
+
+        # Пакетный перевод (параллельно)
         batch_size = 20
         translated_texts = []
         for i in range(0, len(sentence_texts), batch_size):
@@ -182,9 +194,10 @@ def process_video_task(task_id, tmp_path, original_filename):
             batch_translated = run_async_translation(batch)
             translated_texts.extend(batch_translated)
 
+        # Формирование HTML и plain-вывода
         output_lines_html = []
         output_lines_plain = []
-        subtitles = []
+        subtitles = []  # список субтитров
         for sent, trans in zip(sentences, translated_texts):
             start_str = format_time(sent['start'])
             end_str = format_time(sent['end'])
@@ -192,6 +205,7 @@ def process_video_task(task_id, tmp_path, original_filename):
             output_lines_html.append(html_line)
             plain_line = f"[{start_str} -> {end_str}] {sent['text']}\n- {trans}\n\n"
             output_lines_plain.append(plain_line)
+            # Добавляем субтитр
             subtitles.append({
                 'start': sent['start'],
                 'end': sent['end'],
@@ -202,6 +216,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
+        # Сохранение файла
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -209,6 +224,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         with open(result_file_path, 'w', encoding='utf-8') as f:
             f.write(result_text_plain)
 
+        # Сохранение видео
         video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
         os.makedirs(video_dir, exist_ok=True)
         video_name, _ = os.path.splitext(original_filename)
@@ -225,7 +241,6 @@ def process_video_task(task_id, tmp_path, original_filename):
             'video_url': video_url,
             'subtitles': subtitles
         }
-        print(f"[DEBUG] Задача {task_id} успешно завершена")
 
         safe_remove(working_video)
         if converted_path and os.path.exists(converted_path):
@@ -234,7 +249,6 @@ def process_video_task(task_id, tmp_path, original_filename):
             os.remove(audio_path)
 
     except Exception as e:
-        print(f"[ERROR] Задача {task_id} упала: {e}")
         tasks_status[task_id] = {
             'status': 'failed',
             'error': str(e)
@@ -266,12 +280,11 @@ def index_page(request):
                 dest.write(chunk)
 
         task_id = str(uuid.uuid4())
-        # Запускаем фоновую задачу
         thread = threading.Thread(target=process_video_task, args=(task_id, tmp_path, video_file.name))
         thread.daemon = True
         thread.start()
 
-        # Не устанавливаем статус здесь, это сделает сама задача
+        tasks_status[task_id] = {'status': 'processing'}
         return JsonResponse({'task_id': task_id, 'status': 'processing'})
 
     return render(request, 'index-page.html')
