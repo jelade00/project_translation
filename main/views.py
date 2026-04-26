@@ -14,6 +14,7 @@ from django.core.files.storage import default_storage
 from django.http import FileResponse, Http404, JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.urls import reverse
+import mimetypes
 
 import static_ffmpeg
 static_ffmpeg.add_paths()
@@ -54,12 +55,17 @@ def delete_task_status(task_id):
     if os.path.exists(file_path):
         os.remove(file_path)
 
-# ---------- Остальные функции ----------
 def serve_video(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', filename)
-    if os.path.exists(file_path):
-        return FileResponse(open(file_path, 'rb'), content_type='video/mp4')
-    raise Http404("Video not found")
+    if not os.path.exists(file_path):
+        raise Http404(f"Video not found: {filename}")
+    # Определим MIME-тип
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        mime_type = 'video/mp4'  # fallback
+    response = FileResponse(open(file_path, 'rb'), content_type=mime_type)
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response
 
 def safe_remove(file_path, max_attempts=5, delay=0.2):
     for attempt in range(max_attempts):
