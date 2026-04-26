@@ -2,11 +2,13 @@ import os
 import subprocess
 import shutil
 from django.conf import settings
-from celery import shared_task
 from django.urls import reverse
+from celery import shared_task
 
-from .views import save_task_status, safe_remove, format_time
-from .views import merge_segments_into_sentences, run_async_translation, whisper_model
+from .utils import (
+    save_task_status, safe_remove, format_time,
+    merge_segments_into_sentences, run_async_translation, whisper_model
+)
 
 @shared_task
 def process_video_task(task_id, tmp_path, original_filename):
@@ -14,7 +16,7 @@ def process_video_task(task_id, tmp_path, original_filename):
     audio_path = None
     working_video = None
     try:
-        # 1. Конвертация в MP4 (если нужно)
+        # Конвертация в MP4 (если нужно)
         ext = os.path.splitext(original_filename)[1].lower()
         if ext != '.mp4':
             base, _ = os.path.splitext(tmp_path)
@@ -34,7 +36,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         else:
             working_video = tmp_path
 
-        # 2. Извлечение аудио
+        # Извлечение аудио
         audio_path = working_video.replace('.mp4', '_temp.wav')
         cmd_audio = [
             'ffmpeg', '-i', working_video,
@@ -44,14 +46,14 @@ def process_video_task(task_id, tmp_path, original_filename):
         if result.returncode != 0:
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
-        # 3. Распознавание речи
+        # Распознавание речи
         segments, info = whisper_model.transcribe(
             audio_path, beam_size=1, language="en",
             vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500)
         )
         segments_list = list(segments)
 
-        # 4. Объединение в предложения и перевод
+        # Объединение в предложения и перевод
         sentences = merge_segments_into_sentences(segments_list)
         sentence_texts = [s['text'] for s in sentences]
 
@@ -77,7 +79,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
-        # 5. Сохранение файлов
+        # Сохранение файлов
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -102,7 +104,7 @@ def process_video_task(task_id, tmp_path, original_filename):
             'subtitles': subtitles
         })
 
-        # Очистка временных файлов
+        # Очистка
         if working_video and os.path.exists(working_video):
             safe_remove(working_video)
         if audio_path and os.path.exists(audio_path):

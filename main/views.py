@@ -1,6 +1,5 @@
 import os
 import uuid
-import json
 from django.conf import settings
 from django.shortcuts import render
 from django.core.files.storage import default_storage
@@ -10,25 +9,8 @@ from django.views.decorators.http import require_http_methods
 import static_ffmpeg
 static_ffmpeg.add_paths()
 
-from .tasks import process_video_task  # импортируем задачу Celery
-
-# ---------- Файловое хранилище статусов ----------
-TASK_STATUS_DIR = os.path.join(settings.MEDIA_ROOT, 'task_statuses')
-os.makedirs(TASK_STATUS_DIR, exist_ok=True)
-
-def get_status_file_path(task_id):
-    return os.path.join(TASK_STATUS_DIR, f"{task_id}.json")
-
-def save_task_status(task_id, data):
-    with open(get_status_file_path(task_id), 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False)
-
-def get_task_status(task_id):
-    path = get_status_file_path(task_id)
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return None
+from .utils import save_task_status, get_task_status
+from .tasks import process_video_task
 
 # ---------- Django views ----------
 @require_http_methods(["GET", "POST"])
@@ -48,7 +30,6 @@ def index_page(request):
 
         task_id = str(uuid.uuid4())
         save_task_status(task_id, {'status': 'processing'})
-        # Асинхронный запуск задачи Celery
         process_video_task.delay(task_id, tmp_path, video_file.name)
 
         return JsonResponse({'task_id': task_id, 'status': 'processing'})
@@ -69,3 +50,18 @@ def download_result(request, filename):
 
 def about_page(request):
     return render(request, 'about.html')
+
+def serve_video(request, filename):
+    file_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', filename)
+    if not os.path.exists(file_path):
+        raise Http404("Видео не найдено")
+    if os.path.getsize(file_path) == 0:
+        raise Http404("Видеофайл повреждён (нулевой размер)")
+    import mimetypes
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        mime_type = 'video/mp4'
+    response = FileResponse(open(file_path, 'rb'), content_type=mime_type)
+    response['Accept-Ranges'] = 'bytes'
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response
