@@ -43,7 +43,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # WhiteNoise для статики
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -76,7 +76,7 @@ WSGI_APPLICATION = 'django_project.wsgi.application'
 
 # Database
 if os.environ.get('DATABASE_URL'):
-    # Для Railway (если всё же захотите использовать PostgreSQL)
+    # Для Railway
     import dj_database_url
     DATABASES = {
         'default': dj_database_url.config(conn_max_age=600, ssl_require=True)
@@ -132,15 +132,17 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 TASK_STATUS_DIR = os.path.join(MEDIA_ROOT, 'task_statuses')
 os.makedirs(TASK_STATUS_DIR, exist_ok=True)
 
-DATA_UPLOAD_MAX_NUMBER_FIELDS = 10240
-DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
-
-# Настройки для загрузки файлов
+# Увеличение лимита загрузки до 500 МБ
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000
 FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000
 
+# Использование временных файлов на диске вместо памяти
 FILE_UPLOAD_HANDLERS = [
     'django.core.files.uploadhandler.TemporaryFileUploadHandler',
 ]
+
+# Увеличение таймаута чтения клиентского запроса
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10240
 
 CSRF_TRUSTED_ORIGINS = [
     'https://*.railway.app',
