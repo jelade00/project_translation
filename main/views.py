@@ -67,7 +67,11 @@ def serve_video(request, filename):
     mime_type, _ = mimetypes.guess_type(file_path)
     if not mime_type:
         mime_type = 'video/mp4'
-    response = FileResponse(open(file_path, 'rb'), content_type=mime_type)
+    # Открываем файл в бинарном режиме
+    file_obj = open(file_path, 'rb')
+    response = FileResponse(file_obj, content_type=mime_type)
+    # Явно указываем поддержку range-запросов (для перемотки)
+    response['Accept-Ranges'] = 'bytes'
     response['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
 

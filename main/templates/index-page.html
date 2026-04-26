@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LinguaScan | Расшифровка и перевод видео</title>
     <style>
-        /* ... все стили как в вашем файле ... (я их не меняю, просто скопирую из вашего) */
         * {
             margin: 0;
             padding: 0;
@@ -208,14 +207,19 @@
         }
         .video-player {
             width: 100%;
-            margin-bottom: 0.5rem;
+            max-width: 100%;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 1rem;
+            overflow: hidden;
         }
         .video-player video {
             width: 100%;
             height: auto;
-            border-radius: 1rem;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-            background: #000;
+            max-height: 80vh;          /* ограничиваем высоту, чтобы видео не вылезало за экран */
+            object-fit: contain;       /* всё видео помещается в контейнер без обрезки */
         }
         /* Субтитры */
         .subtitles-area {
@@ -361,7 +365,9 @@
             <div id="resultBlock" style="display:none;">
                 <div class="result-container">
                     <div class="video-player">
-                        <video id="resultVideo" controls preload="metadata"></video>
+                        <video id="resultVideo" controls preload="metadata">
+                            <source id="videoSource" src="" type="video/mp4">
+                        </video>
                     </div>
                     <div class="subtitles-area" id="subtitlesArea">
                         <div class="subtitle-en" id="liveSubtitleEn">—</div>
