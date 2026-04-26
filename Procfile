@@ -1,1 +1,1 @@
-web: gunicorn django_project.wsgi --workers=1 --threads=4 --timeout=1200
+web: gunicorn django_project.wsgi --workers=1 --threads=4 --timeout=1800 --graceful-timeout=1800 --keep-alive=10

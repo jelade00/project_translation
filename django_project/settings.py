@@ -133,9 +133,8 @@ TASK_STATUS_DIR = os.path.join(MEDIA_ROOT, 'task_statuses')
 os.makedirs(TASK_STATUS_DIR, exist_ok=True)
 
 # Увеличение лимита загрузки до 500 МБ
-DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000
-FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000
-
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1073741824  # 1 GB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1073741824   # 1 GB
 # Использование временных файлов на диске вместо памяти
 FILE_UPLOAD_HANDLERS = [
     'django.core.files.uploadhandler.TemporaryFileUploadHandler',
