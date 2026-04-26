@@ -82,7 +82,7 @@ def format_time(seconds):
 def convert_to_mp4(input_path, output_path):
     try:
         with VideoFileClip(input_path) as clip:
-            clip.write_videofile(output_path, codec='libx264', audio_codec='aac', logger=None)
+            clip.write_videofile(output_path, codec='mpeg4', audio_codec='aac', logger=None)
         return True
     except Exception as e:
         print(f"Ошибка конвертации в MP4: {e}")
