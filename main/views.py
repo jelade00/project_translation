@@ -58,11 +58,14 @@ def delete_task_status(task_id):
 def serve_video(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', filename)
     if not os.path.exists(file_path):
-        raise Http404(f"Video not found: {filename}")
-    # Определим MIME-тип
+        raise Http404("Видео не найдено")
+    if os.path.getsize(file_path) == 0:
+        raise Http404("Видеофайл повреждён (нулевой размер)")
+    # Определяем MIME-тип
+    import mimetypes
     mime_type, _ = mimetypes.guess_type(file_path)
     if not mime_type:
-        mime_type = 'video/mp4'  # fallback
+        mime_type = 'video/mp4'
     response = FileResponse(open(file_path, 'rb'), content_type=mime_type)
     response['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
@@ -170,19 +173,23 @@ def process_video_task(task_id, tmp_path, original_filename):
     converted_path = None
     try:
         ext = os.path.splitext(original_filename)[1].lower()
-        if ext != '.mp4':
-            converted_path = tmp_path.replace(ext, '.mp4')
-            print(f"Конвертация {tmp_path} -> {converted_path}")
-            if not convert_to_mp4(tmp_path, converted_path):
-                raise Exception("Не удалось сконвертировать видео в MP4")
-            safe_remove(tmp_path)
-            working_video = converted_path
-        else:
-            working_video = tmp_path
+        converted_path = tmp_path.replace(ext, '.mp4')
+        if not convert_to_mp4(tmp_path, converted_path):
+            raise Exception("Не удалось сконвертировать видео в MP4")
+        safe_remove(tmp_path)
+        working_video = converted_path
 
         audio_path = working_video.replace('.mp4', '_temp.wav')
-        with VideoFileClip(working_video) as clip:
-            clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
+        try:
+            with VideoFileClip(working_video) as clip:
+                clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
+        except Exception as e:
+            print(f"Ошибка moviepy: {e}. Использую ffmpeg...")
+            import subprocess
+            cmd = ['ffmpeg', '-i', working_video, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audio_path]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
         segments, info = whisper_model.transcribe(
             audio_path,
@@ -240,6 +247,8 @@ def process_video_task(task_id, tmp_path, original_filename):
         saved_video_name = f"{video_name}_{task_id}.mp4"
         saved_video_path = os.path.join(video_dir, saved_video_name)
         shutil.copy2(working_video, saved_video_path)
+        if os.path.getsize(saved_video_path) == 0:
+            raise Exception("Скопированный видеофайл имеет нулевой размер")
         video_url = reverse('serve_video', args=[saved_video_name])
 
         save_task_status(task_id, {
