@@ -82,7 +82,7 @@ def format_time(seconds):
 def convert_to_mp4(input_path, output_path):
     try:
         with VideoFileClip(input_path) as clip:
-            clip.write_videofile(output_path, codec='mpeg4', audio_codec='aac', logger=None)
+            clip.write_videofile(output_path, codec='libx264', audio_codec='aac', logger=None)
         return True
     except Exception as e:
         print(f"Ошибка конвертации в MP4: {e}")
@@ -176,7 +176,7 @@ def process_video_task(task_id, tmp_path, original_filename):
 
         audio_path = working_video.replace('.mp4', '_temp.wav')
         with VideoFileClip(working_video) as clip:
-            clip.audio.write_audiofile(audio_path, logger=None)
+            clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
 
         segments, info = whisper_model.transcribe(
             audio_path,
