@@ -14,12 +14,10 @@ from django.core.files.storage import default_storage
 from django.http import FileResponse, Http404, JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.urls import reverse
-import mimetypes
 
 import static_ffmpeg
 static_ffmpeg.add_paths()
 
-from moviepy import VideoFileClip
 from faster_whisper import WhisperModel
 
 # ---------- Глобальная инициализация ----------
@@ -35,8 +33,11 @@ whisper_model = WhisperModel(
 translation_cache = {}
 
 # ---------- Файловое хранилище статусов ----------
+TASK_STATUS_DIR = os.path.join(settings.MEDIA_ROOT, 'task_statuses')
+os.makedirs(TASK_STATUS_DIR, exist_ok=True)
+
 def get_status_file_path(task_id):
-    return os.path.join(settings.TASK_STATUS_DIR, f"{task_id}.json")
+    return os.path.join(TASK_STATUS_DIR, f"{task_id}.json")
 
 def save_task_status(task_id, data):
     file_path = get_status_file_path(task_id)
@@ -55,13 +56,13 @@ def delete_task_status(task_id):
     if os.path.exists(file_path):
         os.remove(file_path)
 
+# ---------- Вспомогательные функции ----------
 def serve_video(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'processed_videos', filename)
     if not os.path.exists(file_path):
         raise Http404("Видео не найдено")
     if os.path.getsize(file_path) == 0:
         raise Http404("Видеофайл повреждён (нулевой размер)")
-    # Определяем MIME-тип
     import mimetypes
     mime_type, _ = mimetypes.guess_type(file_path)
     if not mime_type:
@@ -88,21 +89,11 @@ def format_time(seconds):
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-def convert_to_mp4(input_path, output_path):
-    try:
-        with VideoFileClip(input_path) as clip:
-            clip.write_videofile(output_path, codec='libx264', audio_codec='aac', logger=None)
-        return True
-    except Exception as e:
-        print(f"Ошибка конвертации в MP4: {e}")
-        return False
-
 def merge_segments_into_sentences(segments):
     sentences = []
     current_text = ""
     current_start = None
     current_end = None
-
     for seg in segments:
         text = seg.text.strip()
         if not text:
@@ -120,7 +111,6 @@ def merge_segments_into_sentences(segments):
             current_text = ""
             current_start = None
             current_end = None
-
     if current_text:
         sentences.append({
             'start': current_start,
@@ -172,10 +162,10 @@ def process_video_task(task_id, tmp_path, original_filename):
     audio_path = None
     working_video = None
     try:
-        # 1. Принудительная конвертация в MP4 (даже если файл уже .mp4)
         import subprocess
-        ext = os.path.splitext(original_filename)[1].lower()
-        converted_path = tmp_path.replace(ext, '.mp4')
+        # Всегда создаём отдельный сконвертированный файл (даже если исходник .mp4)
+        base, _ = os.path.splitext(tmp_path)
+        converted_path = base + '_converted.mp4'
         print(f"Конвертация {tmp_path} -> {converted_path} через ffmpeg")
         cmd_convert = [
             'ffmpeg', '-i', tmp_path,
@@ -188,9 +178,9 @@ def process_video_task(task_id, tmp_path, original_filename):
         if result.returncode != 0:
             raise Exception(f"Не удалось сконвертировать видео: {result.stderr}")
         working_video = converted_path
-        safe_remove(tmp_path)  # оригинал больше не нужен
+        safe_remove(tmp_path)  # удаляем оригинал
 
-        # 2. Извлечение аудио через ffmpeg
+        # Извлечение аудио через ffmpeg
         audio_path = working_video.replace('.mp4', '_temp.wav')
         cmd_audio = [
             'ffmpeg', '-i', working_video,
@@ -202,7 +192,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         if result.returncode != 0:
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
-        # 3. Распознавание речи (faster-whisper)
+        # Распознавание речи
         segments, info = whisper_model.transcribe(
             audio_path,
             beam_size=1,
@@ -213,9 +203,9 @@ def process_video_task(task_id, tmp_path, original_filename):
         segments_list = list(segments)
         print(f"[INFO] Распознано {len(segments_list)} фрагментов, язык: {info.language}")
 
-        # 4. Объединение в предложения и перевод (без изменений)
         sentences = merge_segments_into_sentences(segments_list)
         sentence_texts = [s['text'] for s in sentences]
+
         batch_size = 20
         translated_texts = []
         for i in range(0, len(sentence_texts), batch_size):
@@ -244,7 +234,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
-        # 5. Сохранение результатов
+        # Сохранение текстового результата
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -252,6 +242,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         with open(result_file_path, 'w', encoding='utf-8') as f:
             f.write(result_text_plain)
 
+        # Сохранение видео для плеера
         video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
         os.makedirs(video_dir, exist_ok=True)
         video_name, _ = os.path.splitext(original_filename)
@@ -269,8 +260,9 @@ def process_video_task(task_id, tmp_path, original_filename):
             'subtitles': subtitles
         })
 
-        # 6. Очистка
-        safe_remove(working_video)
+        # Очистка временных файлов
+        if working_video and os.path.exists(working_video):
+            safe_remove(working_video)
         if audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
 
