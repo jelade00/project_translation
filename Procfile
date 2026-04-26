@@ -1,1 +1,1 @@
-web: daphne -b 0.0.0.0 -p $PORT django_project.asgi:application --bind 0.0.0.0 --http-timeout 3000
+web: gunicorn django_project.wsgi --workers 1 --threads 4
