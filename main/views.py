@@ -170,27 +170,39 @@ def run_async_translation(texts):
 def process_video_task(task_id, tmp_path, original_filename):
     save_task_status(task_id, {'status': 'processing'})
     audio_path = None
-    converted_path = None
+    working_video = None
     try:
+        # 1. Принудительная конвертация в MP4 (даже если файл уже .mp4)
+        import subprocess
         ext = os.path.splitext(original_filename)[1].lower()
         converted_path = tmp_path.replace(ext, '.mp4')
-        if not convert_to_mp4(tmp_path, converted_path):
-            raise Exception("Не удалось сконвертировать видео в MP4")
-        safe_remove(tmp_path)
+        print(f"Конвертация {tmp_path} -> {converted_path} через ffmpeg")
+        cmd_convert = [
+            'ffmpeg', '-i', tmp_path,
+            '-c:v', 'libx264', '-preset', 'fast',
+            '-c:a', 'aac', '-b:a', '128k',
+            '-movflags', '+faststart',
+            '-y', converted_path
+        ]
+        result = subprocess.run(cmd_convert, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"Не удалось сконвертировать видео: {result.stderr}")
         working_video = converted_path
+        safe_remove(tmp_path)  # оригинал больше не нужен
 
+        # 2. Извлечение аудио через ffmpeg
         audio_path = working_video.replace('.mp4', '_temp.wav')
-        try:
-            with VideoFileClip(working_video) as clip:
-                clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
-        except Exception as e:
-            print(f"Ошибка moviepy: {e}. Использую ffmpeg...")
-            import subprocess
-            cmd = ['ffmpeg', '-i', working_video, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audio_path]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
+        cmd_audio = [
+            'ffmpeg', '-i', working_video,
+            '-vn', '-acodec', 'pcm_s16le',
+            '-ar', '16000', '-ac', '1',
+            '-y', audio_path
+        ]
+        result = subprocess.run(cmd_audio, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
+        # 3. Распознавание речи (faster-whisper)
         segments, info = whisper_model.transcribe(
             audio_path,
             beam_size=1,
@@ -201,11 +213,9 @@ def process_video_task(task_id, tmp_path, original_filename):
         segments_list = list(segments)
         print(f"[INFO] Распознано {len(segments_list)} фрагментов, язык: {info.language}")
 
+        # 4. Объединение в предложения и перевод (без изменений)
         sentences = merge_segments_into_sentences(segments_list)
-        print(f"[INFO] Объединено в {len(sentences)} предложений")
-
         sentence_texts = [s['text'] for s in sentences]
-
         batch_size = 20
         translated_texts = []
         for i in range(0, len(sentence_texts), batch_size):
@@ -234,6 +244,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
+        # 5. Сохранение результатов
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -247,8 +258,6 @@ def process_video_task(task_id, tmp_path, original_filename):
         saved_video_name = f"{video_name}_{task_id}.mp4"
         saved_video_path = os.path.join(video_dir, saved_video_name)
         shutil.copy2(working_video, saved_video_path)
-        if os.path.getsize(saved_video_path) == 0:
-            raise Exception("Скопированный видеофайл имеет нулевой размер")
         video_url = reverse('serve_video', args=[saved_video_name])
 
         save_task_status(task_id, {
@@ -260,9 +269,8 @@ def process_video_task(task_id, tmp_path, original_filename):
             'subtitles': subtitles
         })
 
+        # 6. Очистка
         safe_remove(working_video)
-        if converted_path and os.path.exists(converted_path):
-            safe_remove(converted_path)
         if audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
 
@@ -270,8 +278,8 @@ def process_video_task(task_id, tmp_path, original_filename):
         print(f"[ERROR] Task {task_id} failed: {e}")
         save_task_status(task_id, {'status': 'failed', 'error': str(e)})
         safe_remove(tmp_path)
-        if converted_path and os.path.exists(converted_path):
-            safe_remove(converted_path)
+        if working_video and os.path.exists(working_video):
+            safe_remove(working_video)
         if audio_path and os.path.exists(audio_path):
             try:
                 os.remove(audio_path)
