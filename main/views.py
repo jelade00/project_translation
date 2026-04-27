@@ -92,38 +92,45 @@ def format_time(seconds):
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-def merge_segments_into_sentences(segments):
-    """
-    Объединяет фрагменты Whisper в предложения по знакам . ! ?
-    Возвращает список словарей: {'start': float, 'end': float, 'text': str}
-    """
+def merge_segments_into_sentences(segments, max_duration=6.0, max_words=20):
     sentences = []
     current_text = ""
     current_start = None
     current_end = None
+    current_word_count = 0
     for seg in segments:
         text = seg.text.strip()
         if not text:
             continue
+        words_in_seg = len(text.split())
         if current_start is None:
             current_start = seg.start
-        current_text += " " + text
-        current_end = seg.end
-        # Проверяем, есть ли конец предложения
-        if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
+            current_text = text
+            current_end = seg.end
+            current_word_count = words_in_seg
+            continue
+        # Если добавление этого фрагмента превысит лимиты, закрываем текущее предложение и начинаем новое
+        new_duration = seg.end - current_start
+        new_word_count = current_word_count + words_in_seg
+        if new_duration > max_duration or new_word_count > max_words:
             sentences.append({
                 'start': current_start,
                 'end': current_end,
-                'text': current_text.strip()
+                'text': current_text
             })
-            current_text = ""
-            current_start = None
-            current_end = None
+            current_text = text
+            current_start = seg.start
+            current_end = seg.end
+            current_word_count = words_in_seg
+        else:
+            current_text += " " + text
+            current_end = seg.end
+            current_word_count = new_word_count
     if current_text:
         sentences.append({
             'start': current_start,
             'end': current_end,
-            'text': current_text.strip()
+            'text': current_text
         })
     return sentences
 
