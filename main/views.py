@@ -180,10 +180,11 @@ def process_video_task(task_id, tmp_path, original_filename):
             sys.stderr.flush()
 
         # 3. Извлечение аудио через ffmpeg
-        audio_path = working_video.replace('.mp4', '_temp.wav')
+        # 3. Извлечение аудио через ffmpeg
+        base_audio = os.path.splitext(working_video)[0]  # удаляем расширение
+        audio_path = base_audio + '_temp.wav'
         sys.stderr.write(f"[DEBUG] Извлечение аудио {working_video} -> {audio_path}\n")
         sys.stderr.flush()
-        t = time.time()
         cmd_audio = [
             'ffmpeg', '-i', working_video,
             '-vn', '-acodec', 'pcm_s16le',
@@ -191,7 +192,6 @@ def process_video_task(task_id, tmp_path, original_filename):
             '-y', audio_path
         ]
         result = subprocess.run(cmd_audio, capture_output=True, text=True, timeout=600)
-        sys.stderr.write(f"[TIME] Извлечение аудио ffmpeg: {time.time()-t:.2f} сек\n")
         if result.returncode != 0:
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 

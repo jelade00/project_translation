@@ -218,10 +218,9 @@
         .video-player video {
             width: 100%;
             height: auto;
-            max-height: 80vh;          /* ограничиваем высоту, чтобы видео не вылезало за экран */
-            object-fit: contain;       /* всё видео помещается в контейнер без обрезки */
+            max-height: 80vh;
+            object-fit: contain;
         }
-        /* Субтитры */
         .subtitles-area {
             background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(4px);
@@ -404,6 +403,7 @@
         const subtitlesArea = document.getElementById('subtitlesArea');
 
         let activeSubtitles = [];
+        let isProcessing = false;  // флаг для предотвращения обновления страницы
 
         function parseSubtitlesFromHtml(html) {
             const parser = new DOMParser();
@@ -415,22 +415,17 @@
                 if (!timestampSpan) return;
                 const startSec = parseFloat(timestampSpan.getAttribute('data-time'));
                 const endSec = parseFloat(timestampSpan.getAttribute('data-end'));
-                // Клонируем фрагмент, чтобы не изменять оригинал
                 const clone = frag.cloneNode(true);
                 const spanClone = clone.querySelector('.timestamp');
                 if (spanClone) spanClone.remove();
-                // Получаем HTML-содержимое клона
                 const innerHtml = clone.innerHTML;
-                // Разделяем по <br>
                 const parts = innerHtml.split(/<br\s*\/?>/i);
                 let enText = '';
                 let ruText = '';
                 if (parts.length >= 1) {
-                    // Первая часть — английский текст (может содержать переносы)
                     enText = parts[0].replace(/<[^>]*>/g, '').trim();
                 }
                 if (parts.length >= 2) {
-                    // Вторая часть — русский текст (начинается с "- ")
                     let ruPart = parts[1].replace(/<[^>]*>/g, '').trim();
                     if (ruPart.startsWith('-')) ruPart = ruPart.substring(1).trim();
                     ruText = ruPart;
@@ -470,6 +465,7 @@
         }
 
         function showResult(htmlText, fileUrl, videoUrl) {
+            isProcessing = false;
             uploadSection.style.display = 'none';
             statusBlock.style.display = 'none';
             transcriptBox.innerHTML = htmlText;
@@ -479,7 +475,7 @@
             resultBlock.style.display = 'block';
             startBtn.disabled = false;
             startBtn.style.opacity = '1';
-            clearFileInput(); // очищаем поле выбора файла после успешной обработки
+            clearFileInput();
 
             activeSubtitles = parseSubtitlesFromHtml(htmlText);
             if (resultVideo) {
@@ -499,12 +495,13 @@
         }
 
         function showError(message) {
+            isProcessing = false;
             statusBlock.style.display = 'none';
             errorBlock.textContent = message;
             errorBlock.style.display = 'block';
             startBtn.disabled = false;
             startBtn.style.opacity = '1';
-            clearFileInput(); // очищаем поле выбора файла после ошибки
+            clearFileInput();
         }
 
         videoInput.addEventListener('change', function(e) {
@@ -555,6 +552,7 @@
             startBtn.style.opacity = '0.5';
             statusBlock.style.display = 'block';
             resultBlock.style.display = 'none';
+            isProcessing = true;  // обработка началась
 
             try {
                 const response = await fetch('/', {
@@ -571,6 +569,7 @@
                 showError('Ошибка отправки файла: ' + err.message);
             }
         });
+
         async function pollTaskStatus(taskId) {
             const interval = setInterval(async () => {
                 const resp = await fetch(`/task-status/${taskId}/`);
@@ -589,6 +588,15 @@
         }
 
         newFileBtn.addEventListener('click', () => location.reload());
+
+        // Предупреждение при попытке закрыть или обновить страницу во время обработки
+        window.addEventListener('beforeunload', (e) => {
+            if (isProcessing) {
+                e.preventDefault();
+                e.returnValue = 'Обработка видео ещё не завершена. Вы уверены, что хотите покинуть страницу?';
+                return e.returnValue;
+            }
+        });
     </script>
 </body>
 </html>
