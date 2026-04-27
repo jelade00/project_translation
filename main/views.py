@@ -32,6 +32,7 @@ whisper_model = WhisperModel(
     cpu_threads=2,
     num_workers=4
 )
+sys.stderr.write("[DEBUG] Модель Whisper загружена\n")
 
 translation_cache = {}
 
@@ -135,14 +136,18 @@ def run_async_translation(texts):
 
 # ---------- Основная задача обработки видео (без объединения в предложения) ----------
 def process_video_task(task_id, tmp_path, original_filename):
-    sys.stderr.write(f"[DEBUG] process_video_task вызвана для {task_id}\n")
+    import time
+    start_total = time.time()
+    sys.stderr.write(f"\n[DEBUG] === НАЧАЛО ОБРАБОТКИ ЗАДАЧИ {task_id} ===\n")
     sys.stderr.flush()
     save_task_status(task_id, {'status': 'processing'})
     audio_path = None
     working_video = None
     try:
         # 1. Проверка свободного места
+        t = time.time()
         total, used, free = shutil.disk_usage(settings.MEDIA_ROOT)
+        sys.stderr.write(f"[TIME] Проверка диска: {time.time()-t:.2f} сек\n")
         sys.stderr.write(f"[DEBUG] Свободно на диске: {free // (2**20)} МБ\n")
         sys.stderr.flush()
         if free < 500 * 1024 * 1024:
@@ -155,6 +160,7 @@ def process_video_task(task_id, tmp_path, original_filename):
             converted_path = base + '_converted.mp4'
             sys.stderr.write(f"[DEBUG] Конвертация {tmp_path} -> {converted_path}\n")
             sys.stderr.flush()
+            t = time.time()
             cmd_convert = [
                 'ffmpeg', '-i', tmp_path,
                 '-c:v', 'libx264', '-preset', 'fast',
@@ -163,6 +169,7 @@ def process_video_task(task_id, tmp_path, original_filename):
                 '-y', converted_path
             ]
             result = subprocess.run(cmd_convert, capture_output=True, text=True, timeout=600)
+            sys.stderr.write(f"[TIME] Конвертация ffmpeg: {time.time()-t:.2f} сек\n")
             if result.returncode != 0:
                 raise Exception(f"Не удалось сконвертировать видео: {result.stderr}")
             safe_remove(tmp_path)
@@ -176,6 +183,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         audio_path = working_video.replace('.mp4', '_temp.wav')
         sys.stderr.write(f"[DEBUG] Извлечение аудио {working_video} -> {audio_path}\n")
         sys.stderr.flush()
+        t = time.time()
         cmd_audio = [
             'ffmpeg', '-i', working_video,
             '-vn', '-acodec', 'pcm_s16le',
@@ -183,35 +191,42 @@ def process_video_task(task_id, tmp_path, original_filename):
             '-y', audio_path
         ]
         result = subprocess.run(cmd_audio, capture_output=True, text=True, timeout=600)
+        sys.stderr.write(f"[TIME] Извлечение аудио ffmpeg: {time.time()-t:.2f} сек\n")
         if result.returncode != 0:
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
-        # 4. Распознавание речи (без объединения в предложения)
+        # 4. Распознавание речи (Whisper)
         sys.stderr.write(f"[DEBUG] Распознавание речи через Whisper (модель {WHISPER_MODEL_SIZE})\n")
         sys.stderr.flush()
+        t = time.time()
         segments, info = whisper_model.transcribe(
             audio_path,
             beam_size=1,
             language="en",
-            vad_filter=False,  # отключаем для скорости
+            vad_filter=False,
         )
         segments_list = list(segments)
+        sys.stderr.write(f"[TIME] Распознавание речи: {time.time()-t:.2f} сек\n")
         sys.stderr.write(f"[DEBUG] Распознано {len(segments_list)} фрагментов, язык: {info.language}\n")
         sys.stderr.flush()
 
-        # 5. Подготовка текстов для перевода (каждый фрагмент отдельно)
+        # 5. Перевод фрагментов
         fragment_texts = [seg.text for seg in segments_list]
-
         batch_size = 20
         translated_texts = []
+        t_translate_start = time.time()
         for i in range(0, len(fragment_texts), batch_size):
             batch = fragment_texts[i:i+batch_size]
             sys.stderr.write(f"[DEBUG] Перевод фрагментов {i+1}-{min(i+batch_size, len(fragment_texts))}\n")
             sys.stderr.flush()
+            t_batch = time.time()
             batch_translated = run_async_translation(batch)
+            sys.stderr.write(f"[TIME] Пакет {i//batch_size+1} переведён за {time.time()-t_batch:.2f} сек\n")
             translated_texts.extend(batch_translated)
+        sys.stderr.write(f"[TIME] Общее время перевода всех фрагментов: {time.time()-t_translate_start:.2f} сек\n")
 
         # 6. Формирование вывода (HTML, plain, subtitles)
+        t = time.time()
         output_lines_html = []
         output_lines_plain = []
         subtitles = []
@@ -228,19 +243,22 @@ def process_video_task(task_id, tmp_path, original_filename):
                 'en': seg.text,
                 'ru': trans
             })
-
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
+        sys.stderr.write(f"[TIME] Формирование HTML и субтитров: {time.time()-t:.2f} сек\n")
 
         # 7. Сохранение текстового результата
+        t = time.time()
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
         result_file_path = os.path.join(result_dir, result_filename)
         with open(result_file_path, 'w', encoding='utf-8') as f:
             f.write(result_text_plain)
+        sys.stderr.write(f"[TIME] Сохранение текстового файла: {time.time()-t:.2f} сек\n")
 
         # 8. Сохранение видео для плеера
+        t = time.time()
         video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
         os.makedirs(video_dir, exist_ok=True)
         video_name, _ = os.path.splitext(original_filename)
@@ -248,7 +266,10 @@ def process_video_task(task_id, tmp_path, original_filename):
         saved_video_path = os.path.join(video_dir, saved_video_name)
         shutil.copy2(working_video, saved_video_path)
         video_url = reverse('serve_video', args=[saved_video_name])
+        sys.stderr.write(f"[TIME] Копирование видео: {time.time()-t:.2f} сек\n")
 
+        # 9. Сохранение статуса
+        t = time.time()
         save_task_status(task_id, {
             'status': 'completed',
             'result_text_html': result_text_html,
@@ -257,11 +278,13 @@ def process_video_task(task_id, tmp_path, original_filename):
             'video_url': video_url,
             'subtitles': subtitles
         })
+        sys.stderr.write(f"[TIME] Сохранение статуса: {time.time()-t:.2f} сек\n")
 
         sys.stderr.write(f"[DEBUG] Задача {task_id} успешно завершена\n")
+        sys.stderr.write(f"[TIME] ОБЩЕЕ ВРЕМЯ ОБРАБОТКИ: {time.time()-start_total:.2f} сек\n")
         sys.stderr.flush()
 
-        # 9. Очистка временных файлов
+        # 10. Очистка временных файлов
         if working_video and os.path.exists(working_video):
             safe_remove(working_video)
         if audio_path and os.path.exists(audio_path):
