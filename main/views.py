@@ -92,75 +92,78 @@ def format_time(seconds):
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-
 def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
+    """
+    Объединяет фрагменты в предложения по знакам .!?,
+    но также ограничивает длину (максимум слов или длительность),
+    чтобы избежать слишком больших блоков при отсутствии точек.
+    Более корректная обработка нескольких предложений в буфере.
+    """
     sentences = []
-    current_text = ""
-    current_start = None
-    current_end = None
+    buffer = []           # список текстов фрагментов
+    buffer_start = None
+    buffer_end = None
 
     for seg in segments:
         text = seg.text.strip()
         if not text:
             continue
 
-        if current_start is None:
-            current_start = seg.start
+        if buffer_start is None:
+            buffer_start = seg.start
 
-        current_text += " " + text
-        current_end = seg.end
+        buffer.append(text)
+        buffer_end = seg.end
 
-        # Разбиваем текущий накопленный текст на предложения по знакам препинания
-        # Ищем все позиции знаков
-        while True:
-            punct_pos = -1
-            for p in ('.', '!', '?'):
-                pos = current_text.rfind(p)  # ищем последний знак в строке
-                if pos > punct_pos:
-                    punct_pos = pos
-            if punct_pos == -1:
-                break
+        # Полный текст буфера
+        full_text = " ".join(buffer)
 
-            # Берём всё до знака включительно как предложение
-            sentence_text = current_text[:punct_pos + 1].strip()
-            if sentence_text:
-                sentences.append({
-                    'start': current_start,
-                    'end': current_end,
-                    'text': sentence_text
-                })
+        # Ищем самый правый знак препинания
+        punct_pos = -1
+        for p in ('.', '!', '?'):
+            pos = full_text.rfind(p)
+            if pos > punct_pos:
+                punct_pos = pos
+
+        if punct_pos != -1:
+            # Отделяем предложение до знака включительно
+            sentence_text = full_text[:punct_pos + 1].strip()
+            sentences.append({
+                'start': buffer_start,
+                'end': buffer_end,
+                'text': sentence_text
+            })
             # Остаток после знака
-            current_text = current_text[punct_pos + 1:].strip()
-            # Обновляем время начала для остатка (учитываем, что остаток начинается с того же момента? Но проще оставить старый start, это не точно, но для субтитров сойдёт)
-            # Здесь можно не обновлять start, так как следующие фрагменты всё равно скорректируют его; однако если остаток не пуст, нужно сбросить start для следующего предложения?
-            # На самом деле, после разрыва по точке, оставшийся текст – это начало следующего предложения, но его время начала должно быть примерно равно времени этого же сегмента?
-            # Мы не можем точно определить, поэтому оставляем как есть, а следующий фрагмент скорректирует.
-            if current_text:
-                # Остаток есть – начинаем новое предложение с текущим временем (но оно может быть неправильным)
-                current_start = seg.start  # лучше сбросить на начало текущего фрагмента
+            remaining = full_text[punct_pos + 1:].strip()
+            if remaining:
+                # Новый буфер начинается с остатка
+                buffer = [remaining]
+                buffer_start = seg.start   # приблизительное время начала
+                buffer_end = seg.end
             else:
-                current_start = None
-                current_end = None
-
-        # После разбивки на предложения, проверяем лимиты для оставшегося текста (если нет знаков)
-        if current_text:
-            word_count = len(current_text.split())
-            duration = current_end - current_start if current_start else 0
+                buffer = []
+                buffer_start = None
+                buffer_end = None
+        else:
+            # Нет знака препинания – проверяем лимиты
+            word_count = len(full_text.split())
+            duration = buffer_end - buffer_start
             if word_count > max_words or duration > max_duration:
                 sentences.append({
-                    'start': current_start,
-                    'end': current_end,
-                    'text': current_text.strip()
+                    'start': buffer_start,
+                    'end': buffer_end,
+                    'text': full_text
                 })
-                current_text = ""
-                current_start = None
-                current_end = None
+                buffer = []
+                buffer_start = None
+                buffer_end = None
 
-    if current_text:
+    # Добавляем остаток, если есть
+    if buffer:
         sentences.append({
-            'start': current_start,
-            'end': current_end,
-            'text': current_text.strip()
+            'start': buffer_start,
+            'end': buffer_end,
+            'text': " ".join(buffer)
         })
 
     return sentences
