@@ -100,10 +100,9 @@ def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
     чтобы избежать слишком больших блоков при отсутствии точек.
     """
     sentences = []
-    current_words = []
+    current_text = ""
     current_start = None
     current_end = None
-    current_text = ""
 
     for seg in segments:
         text = seg.text.strip()
@@ -116,39 +115,42 @@ def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
         current_text += " " + text
         current_end = seg.end
 
-        # Проверяем, есть ли в текущем накопленном тексте один из знаков конца предложения
-        # Ищем последний такой знак
+        # Ищем последний знак препинания
         punct_pos = -1
         for p in ('.', '!', '?'):
             pos = current_text.rfind(p)
             if pos > punct_pos:
                 punct_pos = pos
 
-        if punct_pos != -1:
-            # Разделяем текст: до знака включительно и остаток
+        # Пока есть знаки препинания, вырезаем предложения
+        while punct_pos != -1:
             sentence_text = current_text[:punct_pos + 1].strip()
-            # Остаток (после знака) оставляем для следующего предложения
+            if sentence_text:
+                sentences.append({
+                    'start': current_start,
+                    'end': current_end,
+                    'text': sentence_text
+                })
             current_text = current_text[punct_pos + 1:].strip()
-            sentences.append({
-                'start': current_start,
-                'end': current_end,
-                'text': sentence_text
-            })
-            current_start = seg.start  # следующий блок начнётся с текущего фрагмента? Нет, лучше с начала остатка? Сложно.
-            # Более простой подход: сбросить всё и начать новый блок с остатка (если он не пуст)
             if current_text:
-                # Остаток станет новым текущим текстом, но начало – время текущего фрагмента
-                # Для простоты продолжим с текущим временем
-                pass
+                # Начинаем новое предложение с текущего момента времени
+                current_start = seg.start
+                current_end = seg.end
             else:
                 current_start = None
                 current_end = None
-        else:
-            # Нет знака препинания, но возможно, текст стал слишком длинным
+            # Ищем следующий знак в остатке
+            punct_pos = -1
+            for p in ('.', '!', '?'):
+                pos = current_text.rfind(p)
+                if pos > punct_pos:
+                    punct_pos = pos
+
+        # Если остался текст без знаков, проверяем лимиты
+        if current_text:
             word_count = len(current_text.split())
             duration = current_end - current_start if current_start else 0
             if word_count > max_words or duration > max_duration:
-                # Принудительно разрываем
                 sentences.append({
                     'start': current_start,
                     'end': current_end,
