@@ -93,71 +93,41 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-def merge_segments_into_sentences(segments, max_words=70, max_duration=20.0):
+def merge_segments_into_sentences(segments, max_duration=20.0, max_words=80):
     """
-    Объединяет фрагменты в предложения.
-    Приоритет – разрыв по знакам .!? в конце фрагмента.
-    Если слишком длинное предложение без знаков, разрывает по лимитам слов/времени.
+    Объединяет фрагменты в блоки, пока не превышен лимит времени или слов.
     """
+    if not segments:
+        return []
     sentences = []
-    buffer_parts = []
-    buffer_start = None
-    buffer_end = None
-    buffer_word_count = 0
-
+    current_text = []
+    current_start = segments[0].start
+    current_end = segments[0].end
+    current_word_count = 0
     for seg in segments:
-        text = seg.text.strip()
-        if not text:
-            continue
-
-        if buffer_start is None:
-            buffer_start = seg.start
-
-        buffer_parts.append(text)
-        buffer_end = seg.end
-        buffer_word_count += len(text.split())
-
-        # Проверяем, заканчивается ли последний добавленный фрагмент на знак препинания
-        ends_with_punct = text[-1] in ('.', '!', '?') if text else False
-
-        # Вычисляем длительность текущего буфера
-        duration = buffer_end - buffer_start
-
-        if ends_with_punct:
-            # Завершаем предложение
+        new_word_count = current_word_count + len(seg.text.split())
+        new_duration = seg.end - current_start
+        if new_duration <= max_duration and new_word_count <= max_words:
+            current_text.append(seg.text)
+            current_end = seg.end
+            current_word_count = new_word_count
+        else:
             sentences.append({
-                'start': buffer_start,
-                'end': buffer_end,
-                'text': " ".join(buffer_parts)
+                'start': current_start,
+                'end': current_end,
+                'text': " ".join(current_text)
             })
-            # Сброс
-            buffer_parts = []
-            buffer_start = None
-            buffer_end = None
-            buffer_word_count = 0
-        elif buffer_word_count > max_words or duration > max_duration:
-            # Принудительный разрыв
-            sentences.append({
-                'start': buffer_start,
-                'end': buffer_end,
-                'text': " ".join(buffer_parts)
-            })
-            buffer_parts = []
-            buffer_start = None
-            buffer_end = None
-            buffer_word_count = 0
-
-    # Остаток
-    if buffer_parts:
+            current_text = [seg.text]
+            current_start = seg.start
+            current_end = seg.end
+            current_word_count = len(seg.text.split())
+    if current_text:
         sentences.append({
-            'start': buffer_start,
-            'end': buffer_end,
-            'text': " ".join(buffer_parts)
+            'start': current_start,
+            'end': current_end,
+            'text': " ".join(current_text)
         })
-
     return sentences
-
-
 
 # ---------- Асинхронный перевод ----------
 async def translate_text_async(session, text, semaphore):
