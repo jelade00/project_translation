@@ -102,57 +102,61 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
+    """
+    Объединяет фрагменты в предложения. Предложение завершается, когда:
+    - очередной фрагмент оканчивается на ., !, ?
+    - превышено max_words или max_duration (принудительный разрыв)
+    """
     sentences = []
-    current_text = ""
-    current_start = None
-    current_end = None
+    buffer = []
+    buffer_start = None
+    buffer_end = None
+    buffer_word_count = 0
 
     for seg in segments:
         text = seg.text.strip()
         if not text:
             continue
 
-        if current_start is None:
-            current_start = seg.start
+        if buffer_start is None:
+            buffer_start = seg.start
 
-        current_text += " " + text
-        current_end = seg.end
+        buffer.append(text)
+        buffer_end = seg.end
+        buffer_word_count += len(text.split())
 
-        # Разбиваем накопленный текст на предложения
-        tokenized = sent_tokenize(current_text)
-
-        # Если есть хотя бы одно полное предложение и остаток
-        if len(tokenized) > 1:
-            # Все предложения, кроме последнего (незаконченного), отправляем
-            for sent in tokenized[:-1]:
-                sentences.append({
-                    'start': current_start,
-                    'end': current_end,
-                    'text': sent
-                })
-            # Последний (незаконченный) фрагмент оставляем в буфере
-            current_text = tokenized[-1]
-            current_start = seg.start  # приблизительное время начала остатка
+        # Проверка конца предложения по знаку препинания
+        if text and text[-1] in ('.', '!', '?'):
+            sentences.append({
+                'start': buffer_start,
+                'end': buffer_end,
+                'text': " ".join(buffer)
+            })
+            # Сброс для следующего предложения
+            buffer = []
+            buffer_start = None
+            buffer_end = None
+            buffer_word_count = 0
         else:
-            # Нет полного предложения – проверяем лимиты
-            word_count = len(current_text.split())
-            duration = current_end - current_start
-            if word_count > max_words or duration > max_duration:
+            # Принудительный разрыв по лимитам
+            duration = buffer_end - buffer_start
+            if buffer_word_count > max_words or duration > max_duration:
                 sentences.append({
-                    'start': current_start,
-                    'end': current_end,
-                    'text': current_text
+                    'start': buffer_start,
+                    'end': buffer_end,
+                    'text': " ".join(buffer)
                 })
-                current_text = ""
-                current_start = None
-                current_end = None
+                buffer = []
+                buffer_start = None
+                buffer_end = None
+                buffer_word_count = 0
 
-    # Добавляем остаток
-    if current_text:
+    # Остаток (если видео закончилось без знака препинания)
+    if buffer:
         sentences.append({
-            'start': current_start,
-            'end': current_end,
-            'text': current_text
+            'start': buffer_start,
+            'end': buffer_end,
+            'text': " ".join(buffer)
         })
 
     return sentences
