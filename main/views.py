@@ -93,40 +93,47 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-def merge_segments_into_sentences(segments, max_duration=20.0, max_words=80):
+def merge_segments_into_sentences(segments):
     """
-    Объединяет фрагменты в блоки, пока не превышен лимит времени или слов.
+    Объединяет фрагменты в предложения. Предложение заканчивается,
+    когда последний добавленный фрагмент заканчивается на . ! ?
     """
-    if not segments:
-        return []
     sentences = []
-    current_text = []
-    current_start = segments[0].start
-    current_end = segments[0].end
-    current_word_count = 0
+    buffer = []          # накопленные части
+    start_time = None
+    end_time = None
+
     for seg in segments:
-        new_word_count = current_word_count + len(seg.text.split())
-        new_duration = seg.end - current_start
-        if new_duration <= max_duration and new_word_count <= max_words:
-            current_text.append(seg.text)
-            current_end = seg.end
-            current_word_count = new_word_count
-        else:
+        text = seg.text.strip()
+        if not text:
+            continue
+
+        if start_time is None:
+            start_time = seg.start
+
+        buffer.append(text)
+        end_time = seg.end
+
+        # Если этот фрагмент заканчивается на знак препинания – завершаем предложение
+        if text and text[-1] in ('.', '!', '?'):
+            full_text = " ".join(buffer)
             sentences.append({
-                'start': current_start,
-                'end': current_end,
-                'text': " ".join(current_text)
+                'start': start_time,
+                'end': end_time,
+                'text': full_text
             })
-            current_text = [seg.text]
-            current_start = seg.start
-            current_end = seg.end
-            current_word_count = len(seg.text.split())
-    if current_text:
+            buffer = []
+            start_time = None
+            end_time = None
+
+    # Если в конце видео нет точки, добавляем остаток как есть
+    if buffer:
         sentences.append({
-            'start': current_start,
-            'end': current_end,
-            'text': " ".join(current_text)
+            'start': start_time,
+            'end': end_time,
+            'text': " ".join(buffer)
         })
+
     return sentences
 
 # ---------- Асинхронный перевод ----------
