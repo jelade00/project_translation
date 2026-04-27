@@ -91,37 +91,6 @@ def format_time(seconds):
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-def merge_segments_into_sentences(segments):
-    sentences = []
-    current_text = ""
-    current_start = None
-    current_end = None
-    for seg in segments:
-        text = seg.text.strip()
-        if not text:
-            continue
-        if current_start is None:
-            current_start = seg.start
-        current_text += " " + text
-        current_end = seg.end
-        # Проверяем, есть ли конец предложения ( . ! ? )
-        if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
-            sentences.append({
-                'start': current_start,
-                'end': current_end,
-                'text': current_text.strip()
-            })
-            current_text = ""
-            current_start = None
-            current_end = None
-    if current_text:
-        sentences.append({
-            'start': current_start,
-            'end': current_end,
-            'text': current_text.strip()
-        })
-    return sentences
-
 # ---------- Асинхронный перевод ----------
 async def translate_text_async(session, text, semaphore):
     if text in translation_cache:
@@ -160,7 +129,7 @@ def run_async_translation(texts):
     finally:
         loop.close()
 
-# ---------- Основная задача обработки видео (с объединением в предложения) ----------
+# ---------- Основная задача обработки видео (без объединения фрагментов) ----------
 def process_video_task(task_id, tmp_path, original_filename):
     sys.stderr.write(f"[DEBUG] process_video_task вызвана для {task_id}\n")
     sys.stderr.flush()
@@ -220,50 +189,45 @@ def process_video_task(task_id, tmp_path, original_filename):
             audio_path,
             beam_size=1,
             language="en",
-            vad_filter=False,   # отключено для скорости
+            vad_filter=False,
         )
         segments_list = list(segments)
         sys.stderr.write(f"[DEBUG] Распознано {len(segments_list)} фрагментов, язык: {info.language}\n")
         sys.stderr.flush()
 
-        # 5. Объединение в полноценные предложения
-        sentences = merge_segments_into_sentences(segments_list)
-        sys.stderr.write(f"[DEBUG] Объединено в {len(sentences)} предложений\n")
-        sys.stderr.flush()
-
-        # 6. Перевод целых предложений (пакетами)
-        sentence_texts = [s['text'] for s in sentences]
+        # 5. Переводим каждый фрагмент отдельно (без объединения в предложения)
+        fragment_texts = [seg.text for seg in segments_list]
         batch_size = 20
         translated_texts = []
-        for i in range(0, len(sentence_texts), batch_size):
-            batch = sentence_texts[i:i+batch_size]
-            sys.stderr.write(f"[DEBUG] Перевод предложений {i+1}-{min(i+batch_size, len(sentence_texts))}\n")
+        for i in range(0, len(fragment_texts), batch_size):
+            batch = fragment_texts[i:i+batch_size]
+            sys.stderr.write(f"[DEBUG] Перевод фрагментов {i+1}-{min(i+batch_size, len(fragment_texts))}\n")
             sys.stderr.flush()
             batch_translated = run_async_translation(batch)
             translated_texts.extend(batch_translated)
 
-        # 7. Формирование HTML и plain-вывода, а также субтитров
+        # 6. Формирование вывода (HTML, plain, subtitles)
         output_lines_html = []
         output_lines_plain = []
         subtitles = []
-        for sent, trans in zip(sentences, translated_texts):
-            start_str = format_time(sent['start'])
-            end_str = format_time(sent['end'])
-            html_line = f'<div class="fragment"><span class="timestamp" data-time="{sent["start"]}" data-end="{sent["end"]}">[{start_str} -> {end_str}]</span> {sent["text"]}<br>- {trans}<br><br></div>'
+        for seg, trans in zip(segments_list, translated_texts):
+            start_str = format_time(seg.start)
+            end_str = format_time(seg.end)
+            html_line = f'<div class="fragment"><span class="timestamp" data-time="{seg.start}" data-end="{seg.end}">[{start_str} -> {end_str}]</span> {seg.text}<br>- {trans}<br><br></div>'
             output_lines_html.append(html_line)
-            plain_line = f"[{start_str} -> {end_str}] {sent['text']}\n- {trans}\n\n"
+            plain_line = f"[{start_str} -> {end_str}] {seg.text}\n- {trans}\n\n"
             output_lines_plain.append(plain_line)
             subtitles.append({
-                'start': sent['start'],
-                'end': sent['end'],
-                'en': sent['text'],
+                'start': seg.start,
+                'end': seg.end,
+                'en': seg.text,
                 'ru': trans
             })
 
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
-        # 8. Сохранение текстового результата
+        # 7. Сохранение текстового результата
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -271,7 +235,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         with open(result_file_path, 'w', encoding='utf-8') as f:
             f.write(result_text_plain)
 
-        # 9. Сохранение видео для плеера
+        # 8. Сохранение видео для плеера
         video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
         os.makedirs(video_dir, exist_ok=True)
         video_name, _ = os.path.splitext(original_filename)
@@ -292,7 +256,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         sys.stderr.write(f"[DEBUG] Задача {task_id} успешно завершена\n")
         sys.stderr.flush()
 
-        # 10. Очистка временных файлов
+        # 9. Очистка временных файлов
         if working_video and os.path.exists(working_video):
             safe_remove(working_video)
         if audio_path and os.path.exists(audio_path):
