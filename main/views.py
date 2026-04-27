@@ -102,61 +102,71 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
-    """
-    Объединяет фрагменты в предложения. Предложение завершается, когда:
-    - очередной фрагмент оканчивается на ., !, ?
-    - превышено max_words или max_duration (принудительный разрыв)
-    """
     sentences = []
-    buffer = []
+    # Храним не только текст, но и время окончания каждого фрагмента
+    buffer_items = []          # (text, end_time)
     buffer_start = None
-    buffer_end = None
-    buffer_word_count = 0
+    buffer_text = ""
 
     for seg in segments:
         text = seg.text.strip()
         if not text:
             continue
 
-        if buffer_start is None:
+        if not buffer_items:
             buffer_start = seg.start
 
-        buffer.append(text)
-        buffer_end = seg.end
-        buffer_word_count += len(text.split())
+        buffer_items.append((text, seg.end))
+        buffer_text = " ".join(t[0] for t in buffer_items)
 
-        # Проверка конца предложения по знаку препинания
-        if text and text[-1] in ('.', '!', '?'):
-            sentences.append({
-                'start': buffer_start,
-                'end': buffer_end,
-                'text': " ".join(buffer)
-            })
-            # Сброс для следующего предложения
-            buffer = []
-            buffer_start = None
-            buffer_end = None
-            buffer_word_count = 0
-        else:
-            # Принудительный разрыв по лимитам
-            duration = buffer_end - buffer_start
-            if buffer_word_count > max_words or duration > max_duration:
+        # Разбиваем накопленный текст на предложения
+        tokenized = sent_tokenize(buffer_text)
+
+        # Если есть хотя бы одно полное предложение (не последнее)
+        if len(tokenized) > 1:
+            pos = 0
+            for i in range(len(tokenized) - 1):
+                sent = tokenized[i]
+                sent_len = len(sent)
+                end_pos = pos + sent_len
+                # Находим, на каком фрагменте заканчивается это предложение
+                cum_len = 0
+                sent_end_time = buffer_start
+                for t, end_t in buffer_items:
+                    cum_len += len(t) + 1
+                    if cum_len >= end_pos:
+                        sent_end_time = end_t
+                        break
                 sentences.append({
                     'start': buffer_start,
-                    'end': buffer_end,
-                    'text': " ".join(buffer)
+                    'end': sent_end_time,
+                    'text': sent
                 })
-                buffer = []
+                buffer_start = sent_end_time   # начало следующего предложения
+                pos = end_pos
+            # Оставляем последнее (незаконченное) предложение в буфере
+            last_sent = tokenized[-1]
+            buffer_items = [(last_sent, buffer_items[-1][1])]
+            buffer_text = last_sent
+        else:
+            # Нет полного предложения – проверяем лимиты
+            duration = buffer_items[-1][1] - buffer_start
+            word_count = len(buffer_text.split())
+            if word_count > max_words or duration > max_duration:
+                sentences.append({
+                    'start': buffer_start,
+                    'end': buffer_items[-1][1],
+                    'text': buffer_text
+                })
+                buffer_items = []
                 buffer_start = None
-                buffer_end = None
-                buffer_word_count = 0
+                buffer_text = ""
 
-    # Остаток (если видео закончилось без знака препинания)
-    if buffer:
+    if buffer_items:
         sentences.append({
             'start': buffer_start,
-            'end': buffer_end,
-            'text': " ".join(buffer)
+            'end': buffer_items[-1][1],
+            'text': buffer_text
         })
 
     return sentences
