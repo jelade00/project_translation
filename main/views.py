@@ -97,73 +97,66 @@ def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
     Объединяет фрагменты в предложения по знакам .!?,
     но также ограничивает длину (максимум слов или длительность),
     чтобы избежать слишком больших блоков при отсутствии точек.
-    Более корректная обработка нескольких предложений в буфере.
     """
     sentences = []
-    buffer = []           # список текстов фрагментов
-    buffer_start = None
-    buffer_end = None
+    current_text = ""
+    current_start = None
+    current_end = None
 
     for seg in segments:
         text = seg.text.strip()
         if not text:
             continue
 
-        if buffer_start is None:
-            buffer_start = seg.start
+        if current_start is None:
+            current_start = seg.start
 
-        buffer.append(text)
-        buffer_end = seg.end
+        current_text += " " + text
+        current_end = seg.end
 
-        # Полный текст буфера
-        full_text = " ".join(buffer)
-
-        # Ищем самый правый знак препинания
+        # Проверяем, есть ли в текущем накопленном тексте один из знаков конца предложения
         punct_pos = -1
         for p in ('.', '!', '?'):
-            pos = full_text.rfind(p)
+            pos = current_text.rfind(p)
             if pos > punct_pos:
                 punct_pos = pos
 
         if punct_pos != -1:
-            # Отделяем предложение до знака включительно
-            sentence_text = full_text[:punct_pos + 1].strip()
+            # Разделяем текст: до знака включительно и остаток
+            sentence_text = current_text[:punct_pos + 1].strip()
+            # Остаток (после знака) оставляем для следующего предложения
+            current_text = current_text[punct_pos + 1:].strip()
             sentences.append({
-                'start': buffer_start,
-                'end': buffer_end,
+                'start': current_start,
+                'end': current_end,
                 'text': sentence_text
             })
-            # Остаток после знака
-            remaining = full_text[punct_pos + 1:].strip()
-            if remaining:
-                # Новый буфер начинается с остатка
-                buffer = [remaining]
-                buffer_start = seg.start   # приблизительное время начала
-                buffer_end = seg.end
+            # НАЧИНАЕМ НОВОЕ ПРЕДЛОЖЕНИЕ С ОСТАТКА (ЕСЛИ ОН ЕСТЬ)
+            if current_text:
+                current_start = seg.start  # начало следующего блока – текущий фрагмент
+                # НЕ ОБНУЛЯЕМ current_text – он уже содержит остаток
             else:
-                buffer = []
-                buffer_start = None
-                buffer_end = None
+                current_start = None
+                current_end = None
         else:
-            # Нет знака препинания – проверяем лимиты
-            word_count = len(full_text.split())
-            duration = buffer_end - buffer_start
+            # Нет знака препинания, но возможно, текст стал слишком длинным
+            word_count = len(current_text.split())
+            duration = current_end - current_start if current_start else 0
             if word_count > max_words or duration > max_duration:
                 sentences.append({
-                    'start': buffer_start,
-                    'end': buffer_end,
-                    'text': full_text
+                    'start': current_start,
+                    'end': current_end,
+                    'text': current_text.strip()
                 })
-                buffer = []
-                buffer_start = None
-                buffer_end = None
+                current_text = ""
+                current_start = None
+                current_end = None
 
-    # Добавляем остаток, если есть
-    if buffer:
+    if current_text:
         sentences.append({
-            'start': buffer_start,
-            'end': buffer_end,
-            'text': " ".join(buffer)
+            'start': current_start,
+            'end': current_end,
+            'text': current_text.strip()
         })
 
     return sentences
