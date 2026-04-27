@@ -95,43 +95,43 @@ def format_time(seconds):
 
 def merge_segments_into_sentences(segments):
     """
-    Объединяет фрагменты в предложения. Предложение заканчивается,
-    когда последний добавленный фрагмент заканчивается на . ! ?
+    Объединяет фрагменты Whisper в предложения по знакам . ! ?
+    Возвращает список словарей: {'start': float, 'end': float, 'text': str}
     """
     sentences = []
-    buffer = []          # накопленные части
-    start_time = None
-    end_time = None
+    current_text = ""
+    current_start = None
+    current_end = None
 
     for seg in segments:
         text = seg.text.strip()
         if not text:
             continue
 
-        if start_time is None:
-            start_time = seg.start
+        if current_start is None:
+            current_start = seg.start
 
-        buffer.append(text)
-        end_time = seg.end
+        current_text += " " + text
+        current_end = seg.end
 
-        # Если этот фрагмент заканчивается на знак препинания – завершаем предложение
-        if text and text[-1] in ('.', '!', '?'):
-            full_text = " ".join(buffer)
+        # Проверяем, есть ли конец предложения
+        if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
+            # Предложение закончено
             sentences.append({
-                'start': start_time,
-                'end': end_time,
-                'text': full_text
+                'start': current_start,
+                'end': current_end,
+                'text': current_text.strip()
             })
-            buffer = []
-            start_time = None
-            end_time = None
+            current_text = ""
+            current_start = None
+            current_end = None
 
-    # Если в конце видео нет точки, добавляем остаток как есть
-    if buffer:
+    # Если остался текст без знака препинания в конце, добавляем его как есть
+    if current_text:
         sentences.append({
-            'start': start_time,
-            'end': end_time,
-            'text': " ".join(buffer)
+            'start': current_start,
+            'end': current_end,
+            'text': current_text.strip()
         })
 
     return sentences
