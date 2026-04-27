@@ -68,11 +68,10 @@ whisper_model = WhisperModel(
 sys.stderr.write("[DEBUG] Модель Whisper загружена\n")
 
 # ------------------------------------------------------------
-# Настройка пути к FFmpeg (static_ffmpeg загружает бинарник)
+# Настройка FFmpeg (static_ffmpeg загружает бинарник в PATH)
 # ------------------------------------------------------------
-static_ffmpeg.add_paths()
-FFMPEG_PATH = static_ffmpeg.ffmpeg_path
-sys.stderr.write(f"[DEBUG] FFmpeg path: {FFMPEG_PATH}\n")
+static_ffmpeg.add_paths()   # после этого ffmpeg можно вызывать по имени
+sys.stderr.write("[DEBUG] FFmpeg добавлен в PATH\n")
 
 # ------------------------------------------------------------
 # Кэш для переводов (чтобы не переводить одинаковые фразы повторно)
@@ -348,7 +347,7 @@ def process_video_task(task_id, tmp_path, original_filename):
             sys.stderr.flush()
             t = time.time()
             cmd_convert = [
-                FFMPEG_PATH, '-i', tmp_path,
+                'ffmpeg', '-i', tmp_path,
                 '-c:v', 'libx264', '-preset', 'fast',
                 '-c:a', 'aac', '-b:a', '128k',
                 '-movflags', '+faststart',
@@ -371,7 +370,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         sys.stderr.write(f"[DEBUG] Извлечение аудио {working_video} -> {audio_path}\n")
         sys.stderr.flush()
         cmd_audio = [
-            FFMPEG_PATH, '-i', working_video,
+            'ffmpeg', '-i', working_video,
             '-vn', '-acodec', 'pcm_s16le',
             '-ar', '16000', '-ac', '1',
             '-y', audio_path
