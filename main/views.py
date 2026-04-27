@@ -93,17 +93,12 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-def merge_segments_into_sentences(segments, max_words=30, max_duration=8.0):
-    """
-    Объединяет фрагменты в предложения по знакам .!?,
-    но также ограничивает длину (максимум слов или длительность),
-    чтобы избежать слишком больших блоков при отсутствии точек.
-    """
+def merge_segments_into_sentences(segments, max_words=40, max_duration=20.0):
     sentences = []
-    current_words = []
+    current_parts = []
     current_start = None
     current_end = None
-    current_text = ""
+    word_count = 0
 
     for seg in segments:
         text = seg.text.strip()
@@ -113,56 +108,40 @@ def merge_segments_into_sentences(segments, max_words=30, max_duration=8.0):
         if current_start is None:
             current_start = seg.start
 
-        current_text += " " + text
+        current_parts.append(text)
         current_end = seg.end
+        word_count += len(text.split())
 
-        # Проверяем, есть ли в текущем накопленном тексте один из знаков конца предложения
-        # Ищем последний такой знак
-        punct_pos = -1
-        for p in ('.', '!', '?'):
-            pos = current_text.rfind(p)
-            if pos > punct_pos:
-                punct_pos = pos
+        full_text = " ".join(current_parts)
 
-        if punct_pos != -1:
-            # Разделяем текст: до знака включительно и остаток
-            sentence_text = current_text[:punct_pos + 1].strip()
-            # Остаток (после знака) оставляем для следующего предложения
-            current_text = current_text[punct_pos + 1:].strip()
+        # Проверяем, является ли текущий текст законченным предложением
+        if full_text and full_text[-1] in ('.', '!', '?'):
             sentences.append({
                 'start': current_start,
                 'end': current_end,
-                'text': sentence_text
+                'text': full_text
             })
-            current_start = seg.start  # следующий блок начнётся с текущего фрагмента? Нет, лучше с начала остатка? Сложно.
-            # Более простой подход: сбросить всё и начать новый блок с остатка (если он не пуст)
-            if current_text:
-                # Остаток станет новым текущим текстом, но начало – время текущего фрагмента
-                # Для простоты продолжим с текущим временем
-                pass
-            else:
-                current_start = None
-                current_end = None
-        else:
-            # Нет знака препинания, но возможно, текст стал слишком длинным
-            word_count = len(current_text.split())
-            duration = current_end - current_start if current_start else 0
-            if word_count > max_words or duration > max_duration:
-                # Принудительно разрываем
-                sentences.append({
-                    'start': current_start,
-                    'end': current_end,
-                    'text': current_text.strip()
-                })
-                current_text = ""
-                current_start = None
-                current_end = None
+            current_parts = []
+            current_start = None
+            current_end = None
+            word_count = 0
+        elif word_count > max_words or (current_end - current_start) > max_duration:
+            # Принудительное завершение, если превышены лимиты
+            sentences.append({
+                'start': current_start,
+                'end': current_end,
+                'text': full_text
+            })
+            current_parts = []
+            current_start = None
+            current_end = None
+            word_count = 0
 
-    if current_text:
+    if current_parts:
         sentences.append({
             'start': current_start,
             'end': current_end,
-            'text': current_text.strip()
+            'text': " ".join(current_parts)
         })
 
     return sentences
