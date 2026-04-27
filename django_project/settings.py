@@ -132,7 +132,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 TASK_STATUS_DIR = os.path.join(MEDIA_ROOT, 'task_statuses')
 os.makedirs(TASK_STATUS_DIR, exist_ok=True)
 
-# Увеличение лимита загрузки до 500 МБ
+# Увеличение лимита загрузки до 1 ГБ
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1073741824  # 1 GB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 1073741824   # 1 GB
 # Использование временных файлов на диске вместо памяти

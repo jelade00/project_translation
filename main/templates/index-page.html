@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LinguaScan | Расшифровка и перевод видео</title>
     <style>
+        /* -------------------- Глобальные стили -------------------- */
         * {
             margin: 0;
             padding: 0;
@@ -20,6 +21,7 @@
             flex-direction: column;
             letter-spacing: -0.1px;
         }
+        /* -------------------- Шапка сайта -------------------- */
         .header {
             background-color: #ffffff;
             border-bottom: 1px solid #e2e8f0;
@@ -69,6 +71,7 @@
         .nav-links a:hover {
             color: #3b82f6;
         }
+        /* -------------------- Основная карточка -------------------- */
         .main-container {
             flex: 1;
             display: flex;
@@ -108,6 +111,7 @@
             display: inline-block;
             letter-spacing: -0.1px;
         }
+        /* -------------------- Блок загрузки файла -------------------- */
         .upload-section {
             transition: opacity 0.3s ease;
         }
@@ -143,6 +147,7 @@
             font-size: 28px;
             color: #3b82f6;
         }
+        /* Скрываем стандартный input[type=file], чтобы управлять внешним видом */
         .file-input {
             display: none;
         }
@@ -173,6 +178,23 @@
             background-color: #2563eb;
             transform: scale(0.98);
         }
+        /* Индикатор загрузки файла (прогресс-бар) */
+        .progress-bar-container {
+            margin-top: 1rem;
+        }
+        progress {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        progress::-webkit-progress-bar {
+            background-color: #e2e8f0;
+        }
+        progress::-webkit-progress-value {
+            background-color: #3b82f6;
+        }
+        /* -------------------- Статус обработки (спиннер) -------------------- */
         .status-box {
             margin-top: 20px;
             padding: 15px;
@@ -193,6 +215,7 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        /* -------------------- Блок ошибок -------------------- */
         .error-message {
             color: #dc2626;
             background: #fee2e2;
@@ -201,6 +224,7 @@
             margin: 15px 0;
             display: none;
         }
+        /* -------------------- Результат: видео, субтитры, расшифровка -------------------- */
         .result-container {
             margin-top: 1.5rem;
             text-align: left;
@@ -258,6 +282,7 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }
+        /* Стили для таймкодов – кликабельные, подчёркнутые */
         .timestamp {
             color: #3b82f6;
             cursor: pointer;
@@ -273,6 +298,7 @@
             background-color: #dbeafe;
             text-decoration: none;
         }
+        /* Кнопки скачивания и нового файла */
         .result-actions {
             display: flex;
             justify-content: center;
@@ -300,21 +326,6 @@
             background-color: #475569;
             transform: scale(0.98);
         }
-        .progress-bar-container {
-            margin-top: 1rem;
-        }
-        progress {
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            overflow: hidden;
-        }
-        progress::-webkit-progress-bar {
-            background-color: #e2e8f0;
-        }
-        progress::-webkit-progress-value {
-            background-color: #3b82f6;
-        }
         .info-note {
             margin-top: 2rem;
             font-size: 0.8rem;
@@ -324,6 +335,7 @@
             border-radius: 1rem;
             letter-spacing: -0.1px;
         }
+        /* -------------------- Подвал -------------------- */
         footer {
             text-align: center;
             padding: 1.5rem;
@@ -331,6 +343,7 @@
             color: #94a3b8;
             border-top: 1px solid #e9eef3;
         }
+        /* Адаптивность для мобильных устройств */
         @media (max-width: 768px) {
             .title { font-size: 1.8rem; }
             .card { padding: 1.8rem; }
@@ -357,6 +370,7 @@
             <div class="sub-wrapper">
                 <div class="sub">Автоматическая расшифровка и перевод англоязычных видео в удобный двуязычный текст</div>
             </div>
+            <!-- Блок загрузки видео -->
             <div id="uploadSection" class="upload-section">
                 <form id="uploadForm" enctype="multipart/form-data">
                     {% csrf_token %}
@@ -370,16 +384,19 @@
                         <div id="fileNameDisplay" class="file-name" style="display:none;"></div>
                     </div>
                     <button type="submit" id="startBtn" class="start-btn">▶ Начать обработку</button>
+                    <!-- Прогресс-бар загрузки (изначально скрыт) -->
                     <div class="progress-bar-container" style="display: none;">
                         <progress id="uploadProgress" value="0" max="100"></progress>
                         <div id="uploadPercent" style="font-size: 0.8rem; color: #3b82f6; margin-top: 5px;">0%</div>
                     </div>
                 </form>
             </div>
+            <!-- Блок индикации обработки (спиннер) -->
             <div id="statusBlock" class="status-box">
                 <div class="spinner"></div>
                 <div style="text-align:center; margin-top:10px;">Обработка видео... Это может занять несколько минут.</div>
             </div>
+            <!-- Блок с результатом (изначально скрыт) -->
             <div id="resultBlock" style="display:none;">
                 <div class="result-container">
                     <div class="video-player">
@@ -394,7 +411,7 @@
                     <div class="transcript-box" id="transcriptBox"></div>
                 </div>
                 <div class="result-actions">
-                    <a id="downloadLink" class="download-btn" download>⬇ Скачать результат (TXT)</a>
+                    <button id="downloadBtn" class="download-btn">⬇ Скачать результат (TXT)</button>
                     <button id="newFileBtn" class="newfile-btn">➕ Новый файл</button>
                 </div>
             </div>
@@ -404,26 +421,10 @@
     </main>
     <footer>© 2026 — LinguaScan | Инструмент для изучения английского по видео</footer>
     <script>
-        const uploadSection = document.getElementById('uploadSection');
-        const uploadForm = document.getElementById('uploadForm');
-        const startBtn = document.getElementById('startBtn');
-        const statusBlock = document.getElementById('statusBlock');
-        const resultBlock = document.getElementById('resultBlock');
-        const errorBlock = document.getElementById('errorBlock');
-        const resultVideo = document.getElementById('resultVideo');
-        const transcriptBox = document.getElementById('transcriptBox');
-        const downloadLink = document.getElementById('downloadLink');
-        const newFileBtn = document.getElementById('newFileBtn');
-        const videoInput = document.getElementById('videoInput');
-        const fileNameDisplay = document.getElementById('fileNameDisplay');
-        const uploadArea = document.getElementById('uploadArea');
-        const liveSubtitleEn = document.getElementById('liveSubtitleEn');
-        const liveSubtitleRu = document.getElementById('liveSubtitleRu');
-        const subtitlesArea = document.getElementById('subtitlesArea');
-
-        let activeSubtitles = [];
-        let isProcessing = false;
-
+        // ------------------------------------------------------------------
+        //  Находит в HTML-коде расшифровки все блоки .fragment и извлекает из них
+        //  таймкоды, английский текст и русский перевод для динамических субтитров.
+        // ------------------------------------------------------------------
         function parseSubtitlesFromHtml(html) {
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
@@ -434,10 +435,12 @@
                 if (!timestampSpan) return;
                 const startSec = parseFloat(timestampSpan.getAttribute('data-time'));
                 const endSec = parseFloat(timestampSpan.getAttribute('data-end'));
+                // Клонируем фрагмент и удаляем таймкод, чтобы не мешал
                 const clone = frag.cloneNode(true);
                 const spanClone = clone.querySelector('.timestamp');
                 if (spanClone) spanClone.remove();
                 const innerHtml = clone.innerHTML;
+                // Разделяем по тегу <br> (английский текст + перевод)
                 const parts = innerHtml.split(/<br\s*\/?>/i);
                 let enText = '';
                 let ruText = '';
@@ -454,6 +457,10 @@
             return subs;
         }
 
+        // ------------------------------------------------------------------
+        //  Обновляет субтитры в реальном времени по текущему времени видео.
+        //  Вызывается при событии timeupdate и seeked.
+        // ------------------------------------------------------------------
         function updateSubtitles() {
             if (!resultVideo || !activeSubtitles.length) return;
             const currentTime = resultVideo.currentTime;
@@ -475,6 +482,9 @@
             }
         }
 
+        // ------------------------------------------------------------------
+        //  Сбрасывает выбранный файл в форме (очищает поле input).
+        // ------------------------------------------------------------------
         function clearFileInput() {
             videoInput.value = '';
             fileNameDisplay.style.display = 'none';
@@ -483,13 +493,17 @@
             uploadArea.style.backgroundColor = '#fefce8';
         }
 
+        // ------------------------------------------------------------------
+        //  Отображает результат обработки: скрывает форму, показывает плеер,
+        //  субтитры и текст расшифровки. Также активирует клики по таймкодам.
+        // ------------------------------------------------------------------
         function showResult(htmlText, fileUrl, videoUrl) {
             isProcessing = false;
             uploadSection.style.display = 'none';
             statusBlock.style.display = 'none';
             transcriptBox.innerHTML = htmlText;
-            const filename = fileUrl.split('/').pop();
-            downloadLink.href = `/download/${encodeURIComponent(filename)}`;
+            // Сохраняем URL файла для скачивания
+            resultFileUrl = fileUrl;
             if (videoUrl) resultVideo.src = videoUrl;
             resultBlock.style.display = 'block';
             startBtn.disabled = false;
@@ -502,6 +516,7 @@
                 resultVideo.addEventListener('seeked', updateSubtitles);
             }
 
+            // Кликабельные таймкоды
             document.querySelectorAll('.timestamp').forEach(ts => {
                 ts.addEventListener('click', (e) => {
                     const sec = parseFloat(ts.getAttribute('data-time'));
@@ -513,6 +528,9 @@
             });
         }
 
+        // ------------------------------------------------------------------
+        //  Отображает сообщение об ошибке и сбрасывает форму.
+        // ------------------------------------------------------------------
         function showError(message) {
             isProcessing = false;
             statusBlock.style.display = 'none';
@@ -523,6 +541,100 @@
             clearFileInput();
         }
 
+        // ------------------------------------------------------------------
+        //  Получение CSRF-токена из куки (для отправки POST-запросов).
+        // ------------------------------------------------------------------
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        // ------------------------------------------------------------------
+        //  Скачивание результата (текстового файла) через fetch.
+        //  Используется такая схема, потому что прямая ссылка иногда не работает.
+        // ------------------------------------------------------------------
+        async function downloadResult() {
+            if (!resultFileUrl) {
+                alert('Файл результата не найден.');
+                return;
+            }
+            try {
+                const response = await fetch(resultFileUrl);
+                if (!response.ok) throw new Error('Ошибка загрузки файла');
+                const blob = await response.blob();
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                // Извлекаем имя файла из URL
+                const filename = resultFileUrl.split('/').pop();
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                showError('Не удалось скачать файл: ' + err.message);
+            }
+        }
+
+        // ------------------------------------------------------------------
+        //  Периодический опрос статуса задачи (каждые 2 секунды).
+        //  Когда статус становится "completed", отображаем результат.
+        // ------------------------------------------------------------------
+        async function pollTaskStatus(taskId) {
+            const interval = setInterval(async () => {
+                const resp = await fetch(`/task-status/${taskId}/`);
+                const status = await resp.json();
+                if (status.status === 'completed') {
+                    clearInterval(interval);
+                    showResult(status.result_text_html, status.file_url, status.video_url);
+                } else if (status.status === 'failed') {
+                    clearInterval(interval);
+                    showError(status.error);
+                } else if (status.status === 'not_found') {
+                    clearInterval(interval);
+                    showError('Задача не найдена');
+                }
+            }, 2000);
+        }
+
+        // ------------------------------------------------------------------
+        //  DOM-элементы, с которыми работаем
+        // ------------------------------------------------------------------
+        const uploadSection = document.getElementById('uploadSection');
+        const uploadForm = document.getElementById('uploadForm');
+        const startBtn = document.getElementById('startBtn');
+        const statusBlock = document.getElementById('statusBlock');
+        const resultBlock = document.getElementById('resultBlock');
+        const errorBlock = document.getElementById('errorBlock');
+        const resultVideo = document.getElementById('resultVideo');
+        const transcriptBox = document.getElementById('transcriptBox');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const newFileBtn = document.getElementById('newFileBtn');
+        const videoInput = document.getElementById('videoInput');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const uploadArea = document.getElementById('uploadArea');
+        const liveSubtitleEn = document.getElementById('liveSubtitleEn');
+        const liveSubtitleRu = document.getElementById('liveSubtitleRu');
+        const subtitlesArea = document.getElementById('subtitlesArea');
+
+        let activeSubtitles = [];
+        let isProcessing = false;   // флаг для предупреждения при закрытии страницы
+        let resultFileUrl = null;   // URL скачиваемого файла
+
+        // ------------------------------------------------------------------
+        //  Обработка выбора файла (показываем имя файла и меняем стиль области загрузки)
+        // ------------------------------------------------------------------
         videoInput.addEventListener('change', function(e) {
             if (e.target.files.length > 0) {
                 fileNameDisplay.textContent = `✓ ${e.target.files[0].name}`;
@@ -538,6 +650,9 @@
             }
         });
 
+        // ------------------------------------------------------------------
+        //  Отправка формы (загрузка видео с отображением прогресса)
+        // ------------------------------------------------------------------
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -552,27 +667,13 @@
             const formData = new FormData();
             formData.append('video_file', videoInput.files[0]);
 
-            function getCookie(name) {
-                let cookieValue = null;
-                if (document.cookie && document.cookie !== '') {
-                    const cookies = document.cookie.split(';');
-                    for (let i = 0; i < cookies.length; i++) {
-                        const cookie = cookies[i].trim();
-                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                            break;
-                        }
-                    }
-                }
-                return cookieValue;
-            }
-
             startBtn.disabled = true;
             startBtn.style.opacity = '0.5';
             statusBlock.style.display = 'block';
             resultBlock.style.display = 'none';
             isProcessing = true;
 
+            // Используем XMLHttpRequest для отслеживания прогресса загрузки
             const xhr = new XMLHttpRequest();
             xhr.open('POST', '/', true);
             xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'));
@@ -619,25 +720,19 @@
             xhr.send(formData);
         });
 
-        async function pollTaskStatus(taskId) {
-            const interval = setInterval(async () => {
-                const resp = await fetch(`/task-status/${taskId}/`);
-                const status = await resp.json();
-                if (status.status === 'completed') {
-                    clearInterval(interval);
-                    showResult(status.result_text_html, status.file_url, status.video_url);
-                } else if (status.status === 'failed') {
-                    clearInterval(interval);
-                    showError(status.error);
-                } else if (status.status === 'not_found') {
-                    clearInterval(interval);
-                    showError('Задача не найдена');
-                }
-            }, 2000);
-        }
+        // ------------------------------------------------------------------
+        //  Кнопка скачивания – вызывает отдельную функцию
+        // ------------------------------------------------------------------
+        downloadBtn.addEventListener('click', downloadResult);
 
+        // ------------------------------------------------------------------
+        //  Кнопка «Новый файл» – перезагружает страницу
+        // ------------------------------------------------------------------
         newFileBtn.addEventListener('click', () => location.reload());
 
+        // ------------------------------------------------------------------
+        //  Предупреждение при попытке закрыть или обновить страницу во время обработки
+        // ------------------------------------------------------------------
         window.addEventListener('beforeunload', (e) => {
             if (isProcessing) {
                 e.preventDefault();
