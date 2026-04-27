@@ -93,8 +93,39 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 def merge_segments_into_sentences(segments):
-    # Эта функция больше не используется, но оставлена для совместимости
-    return segments
+    """
+    Объединяет фрагменты Whisper в предложения по знакам . ! ?
+    Возвращает список словарей: {'start': float, 'end': float, 'text': str}
+    """
+    sentences = []
+    current_text = ""
+    current_start = None
+    current_end = None
+    for seg in segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+        if current_start is None:
+            current_start = seg.start
+        current_text += " " + text
+        current_end = seg.end
+        # Проверяем, есть ли конец предложения
+        if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
+            sentences.append({
+                'start': current_start,
+                'end': current_end,
+                'text': current_text.strip()
+            })
+            current_text = ""
+            current_start = None
+            current_end = None
+    if current_text:
+        sentences.append({
+            'start': current_start,
+            'end': current_end,
+            'text': current_text.strip()
+        })
+    return sentences
 
 # ---------- Асинхронный перевод ----------
 async def translate_text_async(session, text, semaphore):
