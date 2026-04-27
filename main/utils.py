@@ -6,19 +6,20 @@ import shutil
 import asyncio
 import aiohttp
 import subprocess
+import sys
 from asyncio import Semaphore
 from django.conf import settings
 from django.urls import reverse
 from faster_whisper import WhisperModel
 
 # ---------- Whisper и перевод ----------
-WHISPER_MODEL_SIZE = "base"  # или "small", если позволяет память
+WHISPER_MODEL_SIZE = "small"
 whisper_model = WhisperModel(
     WHISPER_MODEL_SIZE,
     device="cpu",
     compute_type="int8",
-    cpu_threads=2,
-    num_workers=1
+    cpu_threads=4,
+    num_workers=2
 )
 
 translation_cache = {}
@@ -42,7 +43,8 @@ async def translate_text_async(session, text, semaphore):
                 translation_cache[text] = translated
                 return translated
         except Exception as e:
-            print(f"Ошибка перевода: {e}")
+            sys.stderr.write(f"Ошибка перевода: {e}\n")
+            sys.stderr.flush()
             return text
 
 async def translate_batch_async(texts, max_concurrent=5):
@@ -129,6 +131,8 @@ def merge_segments_into_sentences(segments):
 
 # ---------- Основная задача обработки видео (без Celery) ----------
 def process_video_task(task_id, tmp_path, original_filename):
+    sys.stderr.write(f"[DEBUG] process_video_task вызвана для {task_id}\n")
+    sys.stderr.flush()
     save_task_status(task_id, {'status': 'processing'})
     audio_path = None
     working_video = None
@@ -138,6 +142,8 @@ def process_video_task(task_id, tmp_path, original_filename):
         if ext != '.mp4':
             base, _ = os.path.splitext(tmp_path)
             converted_path = base + '_converted.mp4'
+            sys.stderr.write(f"[DEBUG] Конвертация {tmp_path} -> {converted_path}\n")
+            sys.stderr.flush()
             cmd_convert = [
                 'ffmpeg', '-i', tmp_path,
                 '-c:v', 'libx264', '-preset', 'fast',
@@ -155,6 +161,8 @@ def process_video_task(task_id, tmp_path, original_filename):
 
         # Извлечение аудио
         audio_path = working_video.replace('.mp4', '_temp.wav')
+        sys.stderr.write(f"[DEBUG] Извлечение аудио {working_video} -> {audio_path}\n")
+        sys.stderr.flush()
         cmd_audio = [
             'ffmpeg', '-i', working_video,
             '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', '-y', audio_path
@@ -164,11 +172,15 @@ def process_video_task(task_id, tmp_path, original_filename):
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
         # Распознавание речи
+        sys.stderr.write(f"[DEBUG] Распознавание речи через Whisper\n")
+        sys.stderr.flush()
         segments, info = whisper_model.transcribe(
             audio_path, beam_size=1, language="en",
             vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500)
         )
         segments_list = list(segments)
+        sys.stderr.write(f"[DEBUG] Распознано {len(segments_list)} фрагментов\n")
+        sys.stderr.flush()
 
         # Объединение в предложения и перевод
         sentences = merge_segments_into_sentences(segments_list)
@@ -178,6 +190,8 @@ def process_video_task(task_id, tmp_path, original_filename):
         translated_texts = []
         for i in range(0, len(sentence_texts), batch_size):
             batch = sentence_texts[i:i+batch_size]
+            sys.stderr.write(f"[DEBUG] Перевод предложений {i+1}-{min(i+batch_size, len(sentence_texts))}\n")
+            sys.stderr.flush()
             batch_translated = run_async_translation(batch)
             translated_texts.extend(batch_translated)
 
@@ -222,6 +236,9 @@ def process_video_task(task_id, tmp_path, original_filename):
             'subtitles': subtitles
         })
 
+        sys.stderr.write(f"[DEBUG] Задача {task_id} успешно завершена\n")
+        sys.stderr.flush()
+
         # Очистка временных файлов
         if working_video and os.path.exists(working_video):
             safe_remove(working_video)
@@ -229,6 +246,10 @@ def process_video_task(task_id, tmp_path, original_filename):
             os.remove(audio_path)
 
     except Exception as e:
+        import traceback
+        sys.stderr.write(f"[ERROR] Task {task_id} failed: {e}\n")
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
         save_task_status(task_id, {'status': 'failed', 'error': str(e)})
         safe_remove(tmp_path)
         if working_video and os.path.exists(working_video):
