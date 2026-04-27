@@ -1,18 +1,16 @@
 import os
 import uuid
+import threading
 from django.conf import settings
 from django.shortcuts import render
 from django.core.files.storage import default_storage
 from django.http import FileResponse, Http404, JsonResponse
 from django.views.decorators.http import require_http_methods
-
 import static_ffmpeg
 static_ffmpeg.add_paths()
 
-from .utils import save_task_status, get_task_status
-from .tasks import process_video_task
+from .utils import save_task_status, get_task_status, process_video_task  # process_video_task теперь в utils
 
-# ---------- Django views ----------
 @require_http_methods(["GET", "POST"])
 def index_page(request):
     if request.method == "POST" and request.FILES.get('video_file'):
@@ -30,7 +28,10 @@ def index_page(request):
 
         task_id = str(uuid.uuid4())
         save_task_status(task_id, {'status': 'processing'})
-        process_video_task.delay(task_id, tmp_path, video_file.name)
+        # Запускаем фоновый поток (без Celery)
+        thread = threading.Thread(target=process_video_task, args=(task_id, tmp_path, video_file.name))
+        thread.daemon = True
+        thread.start()
 
         return JsonResponse({'task_id': task_id, 'status': 'processing'})
 
