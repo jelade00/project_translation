@@ -24,13 +24,13 @@ static_ffmpeg.add_paths()
 from faster_whisper import WhisperModel
 
 # ---------- Глобальная инициализация (ускоренная) ----------
-WHISPER_MODEL_SIZE = "base"   # было "small" – ускоряет в 2-3 раза
+WHISPER_MODEL_SIZE = "base"
 whisper_model = WhisperModel(
     WHISPER_MODEL_SIZE,
     device="cpu",
     compute_type="int8",
-    cpu_threads=2,            # снижено для уменьшения конкуренции
-    num_workers=1             # один воркер – меньше накладных расходов
+    cpu_threads=2,
+    num_workers=1
 )
 
 translation_cache = {}
@@ -92,34 +92,8 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 def merge_segments_into_sentences(segments):
-    sentences = []
-    current_text = ""
-    current_start = None
-    current_end = None
-    for seg in segments:
-        text = seg.text.strip()
-        if not text:
-            continue
-        if current_start is None:
-            current_start = seg.start
-        current_text += " " + text
-        current_end = seg.end
-        if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
-            sentences.append({
-                'start': current_start,
-                'end': current_end,
-                'text': current_text.strip()
-            })
-            current_text = ""
-            current_start = None
-            current_end = None
-    if current_text:
-        sentences.append({
-            'start': current_start,
-            'end': current_end,
-            'text': current_text.strip()
-        })
-    return sentences
+    # Эта функция больше не используется, но оставлена для совместимости
+    return segments
 
 # ---------- Асинхронный перевод ----------
 async def translate_text_async(session, text, semaphore):
@@ -159,7 +133,7 @@ def run_async_translation(texts):
     finally:
         loop.close()
 
-# ---------- Основная задача обработки видео (ускоренная) ----------
+# ---------- Основная задача обработки видео (без объединения в предложения) ----------
 def process_video_task(task_id, tmp_path, original_filename):
     sys.stderr.write(f"[DEBUG] process_video_task вызвана для {task_id}\n")
     sys.stderr.flush()
@@ -194,7 +168,6 @@ def process_video_task(task_id, tmp_path, original_filename):
             safe_remove(tmp_path)
             working_video = converted_path
         else:
-            # Уже MP4 – используем как есть
             working_video = tmp_path
             sys.stderr.write(f"[DEBUG] Пропускаем конвертацию, файл уже MP4\n")
             sys.stderr.flush()
@@ -213,53 +186,53 @@ def process_video_task(task_id, tmp_path, original_filename):
         if result.returncode != 0:
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
-        # 4. Распознавание речи (VAD отключён для скорости)
+        # 4. Распознавание речи (без объединения в предложения)
         sys.stderr.write(f"[DEBUG] Распознавание речи через Whisper (модель {WHISPER_MODEL_SIZE})\n")
         sys.stderr.flush()
         segments, info = whisper_model.transcribe(
             audio_path,
             beam_size=1,
             language="en",
-            vad_filter=False,           # отключаем – быстрее
+            vad_filter=False,  # отключаем для скорости
         )
         segments_list = list(segments)
         sys.stderr.write(f"[DEBUG] Распознано {len(segments_list)} фрагментов, язык: {info.language}\n")
         sys.stderr.flush()
 
-        # 5. Объединение в предложения и перевод
-        sentences = merge_segments_into_sentences(segments_list)
-        sentence_texts = [s['text'] for s in sentences]
+        # 5. Подготовка текстов для перевода (каждый фрагмент отдельно)
+        fragment_texts = [seg.text for seg in segments_list]
 
         batch_size = 20
         translated_texts = []
-        for i in range(0, len(sentence_texts), batch_size):
-            batch = sentence_texts[i:i+batch_size]
-            sys.stderr.write(f"[DEBUG] Перевод предложений {i+1}-{min(i+batch_size, len(sentence_texts))}\n")
+        for i in range(0, len(fragment_texts), batch_size):
+            batch = fragment_texts[i:i+batch_size]
+            sys.stderr.write(f"[DEBUG] Перевод фрагментов {i+1}-{min(i+batch_size, len(fragment_texts))}\n")
             sys.stderr.flush()
             batch_translated = run_async_translation(batch)
             translated_texts.extend(batch_translated)
 
+        # 6. Формирование вывода (HTML, plain, subtitles)
         output_lines_html = []
         output_lines_plain = []
         subtitles = []
-        for sent, trans in zip(sentences, translated_texts):
-            start_str = format_time(sent['start'])
-            end_str = format_time(sent['end'])
-            html_line = f'<div class="fragment"><span class="timestamp" data-time="{sent["start"]}" data-end="{sent["end"]}">[{start_str} -> {end_str}]</span> {sent["text"]}<br>- {trans}<br><br></div>'
+        for seg, trans in zip(segments_list, translated_texts):
+            start_str = format_time(seg.start)
+            end_str = format_time(seg.end)
+            html_line = f'<div class="fragment"><span class="timestamp" data-time="{seg.start}" data-end="{seg.end}">[{start_str} -> {end_str}]</span> {seg.text}<br>- {trans}<br><br></div>'
             output_lines_html.append(html_line)
-            plain_line = f"[{start_str} -> {end_str}] {sent['text']}\n- {trans}\n\n"
+            plain_line = f"[{start_str} -> {end_str}] {seg.text}\n- {trans}\n\n"
             output_lines_plain.append(plain_line)
             subtitles.append({
-                'start': sent['start'],
-                'end': sent['end'],
-                'en': sent['text'],
+                'start': seg.start,
+                'end': seg.end,
+                'en': seg.text,
                 'ru': trans
             })
 
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
-        # 6. Сохранение текстового результата
+        # 7. Сохранение текстового результата
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -267,7 +240,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         with open(result_file_path, 'w', encoding='utf-8') as f:
             f.write(result_text_plain)
 
-        # 7. Сохранение видео для плеера
+        # 8. Сохранение видео для плеера
         video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
         os.makedirs(video_dir, exist_ok=True)
         video_name, _ = os.path.splitext(original_filename)
@@ -288,7 +261,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         sys.stderr.write(f"[DEBUG] Задача {task_id} успешно завершена\n")
         sys.stderr.flush()
 
-        # 8. Очистка временных файлов
+        # 9. Очистка временных файлов
         if working_video and os.path.exists(working_video):
             safe_remove(working_video)
         if audio_path and os.path.exists(audio_path):
