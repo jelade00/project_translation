@@ -31,17 +31,11 @@ def index_page(request):
         task_id = str(uuid.uuid4())
         save_task_status(task_id, {'status': 'processing'})
 
-        sys.stderr.write(f"[DEBUG] Запуск потока для задачи {task_id}\n")
+        sys.stderr.write(f"[DEBUG] Прямой вызов process_video_task для {task_id}\n")
         sys.stderr.flush()
-
-        thread = threading.Thread(target=process_video_task, args=(task_id, tmp_path, video_file.name))
-        thread.daemon = True
-        thread.start()
-
-        sys.stderr.write(f"[DEBUG] Поток для задачи {task_id} запущен\n")
-        sys.stderr.flush()
-
-        return JsonResponse({'task_id': task_id, 'status': 'processing'})
+        process_video_task(task_id, tmp_path, video_file.name)
+        status = get_task_status(task_id)
+        return JsonResponse({'task_id': task_id, 'status': status['status'], 'result': status})
 
     return render(request, 'index-page.html')
 

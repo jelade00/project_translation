@@ -13,13 +13,13 @@ from django.urls import reverse
 from faster_whisper import WhisperModel
 
 # ---------- Whisper и перевод ----------
-WHISPER_MODEL_SIZE = "small"
+WHISPER_MODEL_SIZE = "base"   # <--- изменено с "small" на "base"
 whisper_model = WhisperModel(
     WHISPER_MODEL_SIZE,
     device="cpu",
     compute_type="int8",
-    cpu_threads=4,
-    num_workers=2
+    cpu_threads=2,            # уменьшено
+    num_workers=1             # уменьшено
 )
 
 translation_cache = {}
@@ -137,7 +137,14 @@ def process_video_task(task_id, tmp_path, original_filename):
     audio_path = None
     working_video = None
     try:
-        # Конвертация в MP4 (если не .mp4)
+        # 1. Проверка свободного места
+        total, used, free = shutil.disk_usage(settings.MEDIA_ROOT)
+        sys.stderr.write(f"[DEBUG] Свободно на диске: {free // (2**20)} МБ\n")
+        sys.stderr.flush()
+        if free < 500 * 1024 * 1024:
+            raise Exception(f"Недостаточно места на диске: {free // (2**20)} МБ свободно, нужно минимум 500 МБ")
+
+        # 2. Конвертация в MP4 (если не .mp4)
         ext = os.path.splitext(original_filename)[1].lower()
         if ext != '.mp4':
             base, _ = os.path.splitext(tmp_path)
@@ -151,7 +158,7 @@ def process_video_task(task_id, tmp_path, original_filename):
                 '-movflags', '+faststart',
                 '-y', converted_path
             ]
-            result = subprocess.run(cmd_convert, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd_convert, capture_output=True, text=True, timeout=1800)
             if result.returncode != 0:
                 raise Exception(f"Не удалось сконвертировать видео: {result.stderr}")
             safe_remove(tmp_path)
@@ -159,7 +166,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         else:
             working_video = tmp_path
 
-        # Извлечение аудио
+        # 3. Извлечение аудио
         audio_path = working_video.replace('.mp4', '_temp.wav')
         sys.stderr.write(f"[DEBUG] Извлечение аудио {working_video} -> {audio_path}\n")
         sys.stderr.flush()
@@ -167,11 +174,11 @@ def process_video_task(task_id, tmp_path, original_filename):
             'ffmpeg', '-i', working_video,
             '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', '-y', audio_path
         ]
-        result = subprocess.run(cmd_audio, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd_audio, capture_output=True, text=True, timeout=1800)
         if result.returncode != 0:
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
-        # Распознавание речи
+        # 4. Распознавание речи
         sys.stderr.write(f"[DEBUG] Распознавание речи через Whisper\n")
         sys.stderr.flush()
         segments, info = whisper_model.transcribe(
@@ -182,7 +189,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         sys.stderr.write(f"[DEBUG] Распознано {len(segments_list)} фрагментов\n")
         sys.stderr.flush()
 
-        # Объединение в предложения и перевод
+        # 5. Объединение в предложения и перевод
         sentences = merge_segments_into_sentences(segments_list)
         sentence_texts = [s['text'] for s in sentences]
 
@@ -210,7 +217,7 @@ def process_video_task(task_id, tmp_path, original_filename):
         result_text_html = "".join(output_lines_html)
         result_text_plain = "".join(output_lines_plain)
 
-        # Сохранение текстового результата
+        # 6. Сохранение результатов
         result_filename = f"{os.path.splitext(original_filename)[0]}_translated.txt"
         result_dir = os.path.join(settings.MEDIA_ROOT, 'results')
         os.makedirs(result_dir, exist_ok=True)
@@ -218,7 +225,6 @@ def process_video_task(task_id, tmp_path, original_filename):
         with open(result_file_path, 'w', encoding='utf-8') as f:
             f.write(result_text_plain)
 
-        # Сохранение видео для плеера
         video_dir = os.path.join(settings.MEDIA_ROOT, 'processed_videos')
         os.makedirs(video_dir, exist_ok=True)
         video_name, _ = os.path.splitext(original_filename)
