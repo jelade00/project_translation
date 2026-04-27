@@ -93,15 +93,17 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-def merge_segments_into_sentences(segments):
+def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
     """
-    Объединяет фрагменты Whisper в предложения по знакам . ! ?
-    Возвращает список словарей: {'start': float, 'end': float, 'text': str}
+    Объединяет фрагменты в предложения по знакам .!?,
+    но также ограничивает длину (максимум слов или длительность),
+    чтобы избежать слишком больших блоков при отсутствии точек.
     """
     sentences = []
-    current_text = ""
+    current_words = []
     current_start = None
     current_end = None
+    current_text = ""
 
     for seg in segments:
         text = seg.text.strip()
@@ -114,19 +116,48 @@ def merge_segments_into_sentences(segments):
         current_text += " " + text
         current_end = seg.end
 
-        # Проверяем, есть ли конец предложения
-        if any(text.rstrip().endswith(p) for p in ('.', '!', '?')):
-            # Предложение закончено
+        # Проверяем, есть ли в текущем накопленном тексте один из знаков конца предложения
+        # Ищем последний такой знак
+        punct_pos = -1
+        for p in ('.', '!', '?'):
+            pos = current_text.rfind(p)
+            if pos > punct_pos:
+                punct_pos = pos
+
+        if punct_pos != -1:
+            # Разделяем текст: до знака включительно и остаток
+            sentence_text = current_text[:punct_pos + 1].strip()
+            # Остаток (после знака) оставляем для следующего предложения
+            current_text = current_text[punct_pos + 1:].strip()
             sentences.append({
                 'start': current_start,
                 'end': current_end,
-                'text': current_text.strip()
+                'text': sentence_text
             })
-            current_text = ""
-            current_start = None
-            current_end = None
+            current_start = seg.start  # следующий блок начнётся с текущего фрагмента? Нет, лучше с начала остатка? Сложно.
+            # Более простой подход: сбросить всё и начать новый блок с остатка (если он не пуст)
+            if current_text:
+                # Остаток станет новым текущим текстом, но начало – время текущего фрагмента
+                # Для простоты продолжим с текущим временем
+                pass
+            else:
+                current_start = None
+                current_end = None
+        else:
+            # Нет знака препинания, но возможно, текст стал слишком длинным
+            word_count = len(current_text.split())
+            duration = current_end - current_start if current_start else 0
+            if word_count > max_words or duration > max_duration:
+                # Принудительно разрываем
+                sentences.append({
+                    'start': current_start,
+                    'end': current_end,
+                    'text': current_text.strip()
+                })
+                current_text = ""
+                current_start = None
+                current_end = None
 
-    # Если остался текст без знака препинания в конце, добавляем его как есть
     if current_text:
         sentences.append({
             'start': current_start,
