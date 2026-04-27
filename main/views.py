@@ -94,11 +94,6 @@ def format_time(seconds):
 
 
 def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
-    """
-    Объединяет фрагменты в предложения по знакам .!?,
-    но также ограничивает длину (максимум слов или длительность),
-    чтобы избежать слишком больших блоков при отсутствии точек.
-    """
     sentences = []
     current_text = ""
     current_start = None
@@ -115,15 +110,18 @@ def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
         current_text += " " + text
         current_end = seg.end
 
-        # Ищем последний знак препинания
-        punct_pos = -1
-        for p in ('.', '!', '?'):
-            pos = current_text.rfind(p)
-            if pos > punct_pos:
-                punct_pos = pos
+        # Разбиваем текущий накопленный текст на предложения по знакам препинания
+        # Ищем все позиции знаков
+        while True:
+            punct_pos = -1
+            for p in ('.', '!', '?'):
+                pos = current_text.rfind(p)  # ищем последний знак в строке
+                if pos > punct_pos:
+                    punct_pos = pos
+            if punct_pos == -1:
+                break
 
-        # Пока есть знаки препинания, вырезаем предложения
-        while punct_pos != -1:
+            # Берём всё до знака включительно как предложение
             sentence_text = current_text[:punct_pos + 1].strip()
             if sentence_text:
                 sentences.append({
@@ -131,22 +129,20 @@ def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
                     'end': current_end,
                     'text': sentence_text
                 })
+            # Остаток после знака
             current_text = current_text[punct_pos + 1:].strip()
+            # Обновляем время начала для остатка (учитываем, что остаток начинается с того же момента? Но проще оставить старый start, это не точно, но для субтитров сойдёт)
+            # Здесь можно не обновлять start, так как следующие фрагменты всё равно скорректируют его; однако если остаток не пуст, нужно сбросить start для следующего предложения?
+            # На самом деле, после разрыва по точке, оставшийся текст – это начало следующего предложения, но его время начала должно быть примерно равно времени этого же сегмента?
+            # Мы не можем точно определить, поэтому оставляем как есть, а следующий фрагмент скорректирует.
             if current_text:
-                # Начинаем новое предложение с текущего момента времени
-                current_start = seg.start
-                current_end = seg.end
+                # Остаток есть – начинаем новое предложение с текущим временем (но оно может быть неправильным)
+                current_start = seg.start  # лучше сбросить на начало текущего фрагмента
             else:
                 current_start = None
                 current_end = None
-            # Ищем следующий знак в остатке
-            punct_pos = -1
-            for p in ('.', '!', '?'):
-                pos = current_text.rfind(p)
-                if pos > punct_pos:
-                    punct_pos = pos
 
-        # Если остался текст без знаков, проверяем лимиты
+        # После разбивки на предложения, проверяем лимиты для оставшегося текста (если нет знаков)
         if current_text:
             word_count = len(current_text.split())
             duration = current_end - current_start if current_start else 0
