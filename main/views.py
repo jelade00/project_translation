@@ -21,6 +21,15 @@ from django.urls import reverse
 import static_ffmpeg
 static_ffmpeg.add_paths()
 
+import nltk
+from nltk.tokenize import sent_tokenize
+
+# Загружаем данные для токенизации (один раз при старте)
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    nltk.download('punkt_tab')
+
 from faster_whisper import WhisperModel
 
 # ---------- Глобальная инициализация (ускоренная) ----------
@@ -93,11 +102,6 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
-    """
-    Объединяет фрагменты в предложения по знакам .!?,
-    но также ограничивает длину (максимум слов или длительность),
-    чтобы избежать слишком больших блоков при отсутствии точек.
-    """
     sentences = []
     current_text = ""
     current_start = None
@@ -114,49 +118,41 @@ def merge_segments_into_sentences(segments, max_words=70, max_duration=15.0):
         current_text += " " + text
         current_end = seg.end
 
-        # Проверяем, есть ли в текущем накопленном тексте один из знаков конца предложения
-        punct_pos = -1
-        for p in ('.', '!', '?'):
-            pos = current_text.rfind(p)
-            if pos > punct_pos:
-                punct_pos = pos
+        # Разбиваем накопленный текст на предложения
+        tokenized = sent_tokenize(current_text)
 
-        if punct_pos != -1:
-            # Разделяем текст: до знака включительно и остаток
-            sentence_text = current_text[:punct_pos + 1].strip()
-            # Остаток (после знака) оставляем для следующего предложения
-            current_text = current_text[punct_pos + 1:].strip()
-            sentences.append({
-                'start': current_start,
-                'end': current_end,
-                'text': sentence_text
-            })
-            # НАЧИНАЕМ НОВОЕ ПРЕДЛОЖЕНИЕ С ОСТАТКА (ЕСЛИ ОН ЕСТЬ)
-            if current_text:
-                current_start = seg.start  # начало следующего блока – текущий фрагмент
-                # НЕ ОБНУЛЯЕМ current_text – он уже содержит остаток
-            else:
-                current_start = None
-                current_end = None
+        # Если есть хотя бы одно полное предложение и остаток
+        if len(tokenized) > 1:
+            # Все предложения, кроме последнего (незаконченного), отправляем
+            for sent in tokenized[:-1]:
+                sentences.append({
+                    'start': current_start,
+                    'end': current_end,
+                    'text': sent
+                })
+            # Последний (незаконченный) фрагмент оставляем в буфере
+            current_text = tokenized[-1]
+            current_start = seg.start  # приблизительное время начала остатка
         else:
-            # Нет знака препинания, но возможно, текст стал слишком длинным
+            # Нет полного предложения – проверяем лимиты
             word_count = len(current_text.split())
-            duration = current_end - current_start if current_start else 0
+            duration = current_end - current_start
             if word_count > max_words or duration > max_duration:
                 sentences.append({
                     'start': current_start,
                     'end': current_end,
-                    'text': current_text.strip()
+                    'text': current_text
                 })
                 current_text = ""
                 current_start = None
                 current_end = None
 
+    # Добавляем остаток
     if current_text:
         sentences.append({
             'start': current_start,
             'end': current_end,
-            'text': current_text.strip()
+            'text': current_text
         })
 
     return sentences
