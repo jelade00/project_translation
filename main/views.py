@@ -30,7 +30,7 @@ whisper_model = WhisperModel(
     device="cpu",
     compute_type="int8",
     cpu_threads=2,
-    num_workers=1
+    num_workers=4
 )
 
 translation_cache = {}
