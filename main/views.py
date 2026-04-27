@@ -91,6 +91,10 @@ def format_time(seconds):
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
+def merge_segments_into_sentences(segments):
+    # Эта функция больше не используется, но оставлена для совместимости
+    return segments
+
 # ---------- Асинхронный перевод ----------
 async def translate_text_async(session, text, semaphore):
     if text in translation_cache:
@@ -129,7 +133,7 @@ def run_async_translation(texts):
     finally:
         loop.close()
 
-# ---------- Основная задача обработки видео (без объединения фрагментов) ----------
+# ---------- Основная задача обработки видео (без объединения в предложения) ----------
 def process_video_task(task_id, tmp_path, original_filename):
     sys.stderr.write(f"[DEBUG] process_video_task вызвана для {task_id}\n")
     sys.stderr.flush()
@@ -182,21 +186,22 @@ def process_video_task(task_id, tmp_path, original_filename):
         if result.returncode != 0:
             raise Exception(f"Не удалось извлечь аудио: {result.stderr}")
 
-        # 4. Распознавание речи (быстрые настройки)
+        # 4. Распознавание речи (без объединения в предложения)
         sys.stderr.write(f"[DEBUG] Распознавание речи через Whisper (модель {WHISPER_MODEL_SIZE})\n")
         sys.stderr.flush()
         segments, info = whisper_model.transcribe(
             audio_path,
             beam_size=1,
             language="en",
-            vad_filter=False,
+            vad_filter=False,  # отключаем для скорости
         )
         segments_list = list(segments)
         sys.stderr.write(f"[DEBUG] Распознано {len(segments_list)} фрагментов, язык: {info.language}\n")
         sys.stderr.flush()
 
-        # 5. Переводим каждый фрагмент отдельно (без объединения в предложения)
+        # 5. Подготовка текстов для перевода (каждый фрагмент отдельно)
         fragment_texts = [seg.text for seg in segments_list]
+
         batch_size = 20
         translated_texts = []
         for i in range(0, len(fragment_texts), batch_size):
