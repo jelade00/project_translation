@@ -93,12 +93,17 @@ def format_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-def merge_segments_into_sentences(segments, max_words=40, max_duration=20.0):
+def merge_segments_into_sentences(segments, max_words=30, max_duration=8.0):
+    """
+    Объединяет фрагменты в предложения по правилам:
+    - если фрагмент заканчивается на .!?, закрываем предложение.
+    - если количество слов или длительность превысили лимит, закрываем принудительно.
+    """
     sentences = []
     current_parts = []
     current_start = None
     current_end = None
-    word_count = 0
+    current_word_count = 0
 
     for seg in segments:
         text = seg.text.strip()
@@ -110,33 +115,28 @@ def merge_segments_into_sentences(segments, max_words=40, max_duration=20.0):
 
         current_parts.append(text)
         current_end = seg.end
-        word_count += len(text.split())
+        current_word_count += len(text.split())
 
-        full_text = " ".join(current_parts)
+        # Проверяем, заканчивается ли последний фрагмент на знак препинания
+        ends_with_punct = text[-1] in ('.', '!', '?') if text else False
 
-        # Проверяем, является ли текущий текст законченным предложением
-        if full_text and full_text[-1] in ('.', '!', '?'):
+        # Вычисляем длительность текущего блока
+        duration = current_end - current_start
+
+        if ends_with_punct or current_word_count > max_words or duration > max_duration:
+            # Завершаем текущее предложение
             sentences.append({
                 'start': current_start,
                 'end': current_end,
-                'text': full_text
+                'text': " ".join(current_parts)
             })
+            # Сбрасываем для следующего предложения
             current_parts = []
             current_start = None
             current_end = None
-            word_count = 0
-        elif word_count > max_words or (current_end - current_start) > max_duration:
-            # Принудительное завершение, если превышены лимиты
-            sentences.append({
-                'start': current_start,
-                'end': current_end,
-                'text': full_text
-            })
-            current_parts = []
-            current_start = None
-            current_end = None
-            word_count = 0
+            current_word_count = 0
 
+    # Добавляем остаток, если есть
     if current_parts:
         sentences.append({
             'start': current_start,
